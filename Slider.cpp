@@ -8,30 +8,50 @@
 #include <string>
 #include <vector>
 
-using namespace std;
+constexpr int MAX_N = 10;
+
+int C, H;
+
+struct Field {
+  int N;
+  int grid[MAX_N][MAX_N];
+
+  int* operator [](const int index) {
+    return grid[index];
+  }
+
+  int& operator()(const int r, const int c) {
+    return grid[r][c];
+  }
+
+  bool is_out(const int r, const int c) {
+    return r < 0 || N <= r
+           || c < 0 || N <= c;
+  }
+};
+
+Field field;
+
+std::string solve() {
+  std::string ans;
+  return ans;
+}
 
 int main() {
-  int N;
-  int C;
-  int H;
+  std::cin >> field.N;
+  std::cin >> C;
+  std::cin >> H;
 
-  cin >> N;
-  cin >> C;
-  cin >> H;
-  vector<int> grid(N * N);
   // read grid
-  int moves = 0;
-  for (int k = 0; k < N * N; k++) {
-    cin >> grid[k];
-    if (grid[k] > 0)
-      moves++;
+  for (int k = 0; k < field.N * field.N; k++) {
+    int r = k / field.N;
+    int c = k % field.N;
+    std::cin >> field(r, c);
   }
-  cout << moves << endl;
 
-  for (int r = 0; r < N; r++)
-    for (int c = 0; c < N; c++)
-      if (grid[r * N + c] > 0)
-        cout << r << " " << c << " S L" << endl;
+  const auto ans = solve();
 
-  cout.flush();
+  std::cout << ans << std::endl;
+
+  std::cout.flush();
 }
