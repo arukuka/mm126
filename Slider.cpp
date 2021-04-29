@@ -17,7 +17,7 @@ struct Point {
 };
 
 constexpr double TLE = 9.0;
-constexpr int MAX_N = 10;
+constexpr int MAX_N = 30;
 constexpr int MAX_C = 9;
 constexpr std::array<std::array<int, 2>, 4> OFS{{
   {1, 0},
