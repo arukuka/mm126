@@ -196,35 +196,50 @@ std::vector<Command> solve() {
       main_queue.pop();
 
       struct Node {
-        Point p;
-        int prev;
-        char type;
+        Point point;
+        Command command;
       };
       std::queue<Node> queue;
-      int memo[MAX_N][MAX_N];
+      Command memo[MAX_N][MAX_N];
       std::memset(memo, -1, sizeof(memo));
-      queue.push({{item.r, item.c}, OFS.size(), '\0'});
+      queue.push({{item.r, item.c}, {-1, -1, OFS.size(), '\0'}});
       Point hole{-1, -1};
       while(!queue.empty()) {
         Node node = queue.front();
         queue.pop();
-        if (memo[node.p.r][node.p.c] != -1) {
-          continue;
-        }
-        memo[node.p.r][node.p.c] = node.prev * 256 + node.type;
-        if (best->at(node.p.r, node.p.c) == -1) {
-          hole = node.p;
+        memo[node.point.r][node.point.c] = node.command;
+        if (best->at(node.point.r, node.point.c) == -1) {
+          hole = node.point;
           break;
         }
         for (int index = 0; index < OFS.size(); ++index) {
-          Point np = {node.p.r + OFS[index][1], node.p.c + OFS[index][0]};
+          Point np = {node.point.r + OFS[index][1], node.point.c + OFS[index][0]};
           if (is_out(np)) {
             continue;
           }
           if (best->at(np.r, np.c) > 0) {
             continue;
           }
-          queue.push({np, index, 'M'});
+          if (memo[np.r][np.c].point.r != -1) {
+            continue;
+          }
+          queue.push({np, {node.point, 'M', DIR_COMMANDS[index]}});
+          for (;;) {
+            np.r += OFS[index][1];
+            np.c += OFS[index][0];
+            if (is_out(np) || best->at(np.r, np.c) > 0) {
+              np.r -= OFS[index][1];
+              np.c -= OFS[index][0];
+              break;
+            }
+            if (best->at(np.r, np.c) == -1) {
+              break;
+            }
+          }
+          if (memo[np.r][np.c].point.r != -1) {
+            continue;
+          }
+          queue.push({np, {node.point, 'S', DIR_COMMANDS[index]}});
         }
       }
       if (hole.r == -1) {
@@ -233,13 +248,10 @@ std::vector<Command> solve() {
       }
       std::vector<Command> command;
       Point ite = hole;
-      while (memo[ite.r][ite.c] != OFS.size() * 256) {
-        const int val = memo[ite.r][ite.c];
-        const int index = val / 256;
-        const char type = val % 256;
-        ite.r -= OFS[index][1];
-        ite.c -= OFS[index][0];
-        command.push_back({ite, type, DIR_COMMANDS[index]});
+      while (memo[ite.r][ite.c].point.r != -1) {
+        const Command cmd = memo[ite.r][ite.c];
+        ite = cmd.point;
+        command.push_back(cmd);
       }
       std::shared_ptr<Field> next = std::make_shared<Field>(best);
       next->parent = best;
