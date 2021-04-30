@@ -283,7 +283,25 @@ std::vector<Command> solve() {
   return ans;
 }
 
-int main() {
+void cal_max_score() {
+  std::vector<int> blocks;
+  for (int r = 0; r < N; ++r) {
+    for (int c = 0; c < N; ++c) {
+      const auto v = field->at(r, c);
+      if (v > 1) {
+        blocks.push_back(v);
+      }
+    }
+  }
+  std::sort(blocks.begin(), blocks.end(), std::greater<int>{});
+  int score = 0;
+  for (int i = 0; i < blocks.size(); ++i) {
+    score += (field->Z - i) * (blocks[i] - 1);
+  }
+  std::cerr << score << std::endl;
+}
+
+int main(const int argc, const char** argv) {
   field = std::make_shared<Field>();
   std::cin >> N;
   std::cin >> C;
@@ -297,6 +315,11 @@ int main() {
   }
 
   field->Z = N * N;
+
+  if (argc >= 2 && std::string(argv[1]) == "cal_max_score") {
+    cal_max_score();
+    return 0;
+  }
 
   const auto ans = solve();
 
