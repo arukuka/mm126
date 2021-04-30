@@ -171,11 +171,14 @@ std::vector<Command> solve() {
             if (is_out(np)) {
               continue;
             }
+            if (field->at(np.r, np.c) == 1) {
+              continue;
+            }
             Node next{np, node.score + 1};
             queue.push(next);
           }
         }
-        item.score = -(best * (MAX_C + 1) + field->at(r, c));
+        item.score = -(best * (MAX_C + 1) + MAX_C - field->at(r, c));
         main_queue.push(item);
       }
     }
@@ -202,11 +205,14 @@ std::vector<Command> solve() {
       std::queue<Node> queue;
       Command memo[MAX_N][MAX_N];
       std::memset(memo, -1, sizeof(memo));
-      queue.push({{item.r, item.c}, {-1, -1, OFS.size(), '\0'}});
+      queue.push({{item.r, item.c}, {-1, -1, '\0', '\0'}});
       Point hole{-1, -1};
       while(!queue.empty()) {
         Node node = queue.front();
         queue.pop();
+        if (memo[node.point.r][node.point.c].type != -1) {
+          continue;
+        }
         memo[node.point.r][node.point.c] = node.command;
         if (best->at(node.point.r, node.point.c) == -1) {
           hole = node.point;
@@ -218,9 +224,6 @@ std::vector<Command> solve() {
             continue;
           }
           if (best->at(np.r, np.c) > 0) {
-            continue;
-          }
-          if (memo[np.r][np.c].point.r != -1) {
             continue;
           }
           queue.push({np, {node.point, 'M', DIR_COMMANDS[index]}});
@@ -236,9 +239,6 @@ std::vector<Command> solve() {
               break;
             }
           }
-          if (memo[np.r][np.c].point.r != -1) {
-            continue;
-          }
           queue.push({np, {node.point, 'S', DIR_COMMANDS[index]}});
         }
       }
@@ -248,7 +248,7 @@ std::vector<Command> solve() {
       }
       std::vector<Command> command;
       Point ite = hole;
-      while (memo[ite.r][ite.c].point.r != -1) {
+      while (memo[ite.r][ite.c].type != '\0') {
         const Command cmd = memo[ite.r][ite.c];
         ite = cmd.point;
         command.push_back(cmd);
