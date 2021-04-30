@@ -8,6 +8,7 @@ import os
 import re
 import pandas as pd
 import numpy as np
+import sys
 
 
 def run(seed):
@@ -34,7 +35,7 @@ def run(seed):
                               stdout=subprocess.PIPE,
                               stderr=subprocess.DEVNULL)
         max_score = int([x for x in proc.stdout.decode(
-            'utf-8').split(os.linesep) if re.match(r'^\d+$', x)][0])
+            sys.stdout.encoding).split(os.linesep) if re.match(r'^\d+$', x)][0])
         proc = subprocess.run(['java',
                                '-jar',
                                'tester.jar',
@@ -46,7 +47,7 @@ def run(seed):
                               stdout=subprocess.PIPE,
                               stderr=subprocess.DEVNULL)
         score = int(float([x for x in proc.stdout.decode(
-            'utf-8').split(os.linesep) if 'Score' in x][0].split()[-1]))
+            sys.stdout.encoding).split(os.linesep) if 'Score' in x][0].split()[-1]))
         return (score, max_score)
 
 
@@ -54,12 +55,13 @@ def build():
     id = subprocess.run(
         "git rev-parse --short HEAD",
         shell=True,
-        stdout=subprocess.PIPE).stdout.strip()
+        stdout=subprocess.PIPE).stdout.decode(sys.stdout.encoding).strip()
     changed = int(
         subprocess.run(
             "git diff | wc -l",
             shell=True,
-            stdout=subprocess.PIPE).stdout.strip()) > 0
+            stdout=subprocess.PIPE).stdout.decode(
+            sys.stdout.encoding).strip()) > 0
     if changed:
         id = id + '*'
     subprocess.run(
@@ -72,27 +74,40 @@ def main():
     N = 100
     seeds_range = range(1, N + 1)
     current_id = build()
+    print(f'current_id: {current_id}')
 
+    initial_columns = ['seeds', 'max', 'vs max', 'vs others', 'win']
+    initial_columns_type = [
+        object,
+        np.int32,
+        np.float64,
+        np.float64,
+        np.float64]
     result = pd.DataFrame(
         np.arange((len(seeds_range) + 1) * 2)
         .reshape((len(seeds_range) + 1), 2),
-        columns=['seeds', current_id])
+        columns=[initial_columns[0], current_id])
+
+    result.loc[:, 'seeds'] = list(seeds_range) + ["-"]
 
     result_csv_path = pathlib.Path("result.csv")
     others_columns = []
     if result_csv_path.exists():
-        prev_result = pd.read_csv(result_csv_path)
-        del_targets = ['seeds', 'max', 'vs max', 'vs others', 'win']
+        prev_result = pd.read_csv(result_csv_path, index_col=0)
+        del_targets = initial_columns
         for col in prev_result.columns:
-            if col[-1] == '*':
+            if col[-1] == '*' or col == current_id:
                 del_targets.append(col)
-        prev_result.drop(columns=del_targets)
-        result = pd.concat(result, prev_result, axis=1)
-        others_columns.append(prev_result.columns)
+        prev_result = prev_result.drop(columns=del_targets)
+        result = pd.concat((result, prev_result), axis=1)
+        others_columns = others_columns + prev_result.columns.to_list()
 
-    result[['max', 'vs max', 'vs others', 'win']] = 0
+    for col, dtype in zip(initial_columns[1:], initial_columns_type[1:]):
+        result[col] = 0
+        result[col] = result[col].astype(dtype)
 
     score_acc = 0
+    max_score_acc = 0
     vs_max_acc = 0
     vs_others_acc = 0
     win_acc = 0
@@ -100,7 +115,6 @@ def main():
         score, max_score = run(seed)
 
         vs_max_ratio = score / max_score
-        print(f'({seed:02}) {score:>7} / {max_score:>7} = {vs_max_ratio}')
 
         win = True
         max_all = score
@@ -111,23 +125,33 @@ def main():
         vs_others = score / max_all
 
         score_acc = score_acc + score
+        max_score_acc = max_score_acc + max_score
         vs_max_acc = vs_max_acc + vs_max_ratio
         vs_others_acc = vs_others_acc + vs_others
         if win:
             win_acc = win_acc + 1
 
         result.at[seed - 1, current_id] = score
-        result.at[]
+        for col, val in zip(initial_columns[1:], [
+                            max_score, vs_max_ratio, vs_others, win_acc / seed]):
+            result.at[seed - 1, col] = val
 
         print(
-            f'({seed:02}) {"o" if win else "x"} {win_acc / seed:.3f} {score:>9,}',
+            f'({seed:03}) {"o" if win else "x"} {win_acc / seed:.3f} {score:>9,}',
             f'| {max_score:>9,}({vs_max_ratio:.3f}, {vs_max_acc / seed:.3f})',
             f'| {max_all:>9,}({vs_others:.3f}, {vs_others_acc / seed:.3f})')
 
     score_acc = score_acc / N
+    max_score_acc = max_score_acc / N
     vs_max_acc = vs_max_acc / N
     vs_others_acc = vs_others_acc / N
     win_acc = win_acc / N
+
+    result.at[N, current_id] = score_acc
+    for col, val in zip(initial_columns[1:], [
+                        max_score_acc, vs_max_acc, vs_others_acc, win_acc]):
+        result.at[N, col] = val
+
     result.to_csv(result_csv_path)
 
 
