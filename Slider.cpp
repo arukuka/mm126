@@ -141,7 +141,7 @@ std::vector<Command> solve() {
   std::priority_queue<Item, std::vector<Item>, decltype(main_queue_compare)> main_queue{main_queue_compare};
   for (int r = 0; r < N; ++r) {
     for (int c = 0; c < N; ++c) {
-      if (field->at(r, c) > 1) {
+      if (field->at(r, c) > 0) {
         Item item{field->at(r, c), r, c};
         struct Node {
           Point p;
@@ -169,9 +169,6 @@ std::vector<Command> solve() {
           for (const auto& D : OFS) {
             const Point np{node.p.r + D[1], node.p.c + D[0]};
             if (is_out(np)) {
-              continue;
-            }
-            if (field->at(np.r, np.c) == 1) {
               continue;
             }
             Node next{np, node.score + 1};
