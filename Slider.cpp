@@ -134,15 +134,16 @@ std::ostream& operator<<(std::ostream& os, const std::vector<T>& vec)
   return os;
 }
 
-std::vector<Command> solve() {
+std::shared_ptr<Field> solve_greedy(const std::shared_ptr<Field> src) {
+
   auto main_queue_compare = [](const Item& l, const Item& r) {
     return l.score < r.score;
   };
   std::priority_queue<Item, std::vector<Item>, decltype(main_queue_compare)> main_queue{main_queue_compare};
   for (int r = 0; r < N; ++r) {
     for (int c = 0; c < N; ++c) {
-      if (field->at(r, c) > 0) {
-        Item item{field->at(r, c), r, c};
+      if (src->at(r, c) > 0) {
+        Item item{src->at(r, c), r, c};
         struct Node {
           Point p;
           int score;
@@ -162,7 +163,7 @@ std::vector<Command> solve() {
             continue;
           }
           done[node.p.r][node.p.c] = true;
-          if (field->at(node.p.r, node.p.c) == -1) {
+          if (src->at(node.p.r, node.p.c) == -1) {
             best = node.score;
             break;
           }
@@ -175,93 +176,91 @@ std::vector<Command> solve() {
             queue.push(next);
           }
         }
-        item.score = -(best * (MAX_C + 1) + MAX_C - field->at(r, c));
+        item.score = -(best * (MAX_C + 1) + MAX_C - src->at(r, c));
         main_queue.push(item);
       }
     }
   }
 
+  std::shared_ptr<Field> best = src;
+
+  while (!main_queue.empty()) {
+    Item item = main_queue.top();
+    main_queue.pop();
+
+    struct Node {
+      Point point;
+      Command command;
+    };
+    std::queue<Node> queue;
+    Command memo[MAX_N][MAX_N];
+    std::memset(memo, -1, sizeof(memo));
+    queue.push({{item.r, item.c}, {-1, -1, '\0', '\0'}});
+    Point hole{-1, -1};
+    while(!queue.empty()) {
+      Node node = queue.front();
+      queue.pop();
+      if (memo[node.point.r][node.point.c].type != -1) {
+        continue;
+      }
+      memo[node.point.r][node.point.c] = node.command;
+      if (best->at(node.point.r, node.point.c) == -1) {
+        hole = node.point;
+        break;
+      }
+      for (int index = 0; index < OFS.size(); ++index) {
+        Point np = {node.point.r + OFS[index][1], node.point.c + OFS[index][0]};
+        if (is_out(np)) {
+          continue;
+        }
+        if (best->at(np.r, np.c) > 0) {
+          continue;
+        }
+        queue.push({np, {node.point, 'M', DIR_COMMANDS[index]}});
+        for (;;) {
+          np.r += OFS[index][1];
+          np.c += OFS[index][0];
+          if (is_out(np) || best->at(np.r, np.c) > 0) {
+            np.r -= OFS[index][1];
+            np.c -= OFS[index][0];
+            break;
+          }
+          if (best->at(np.r, np.c) == -1) {
+            break;
+          }
+        }
+        queue.push({np, {node.point, 'S', DIR_COMMANDS[index]}});
+      }
+    }
+    if (hole.r == -1) {
+      continue;
+    }
+    std::vector<Command> command;
+    Point ite = hole;
+    while (memo[ite.r][ite.c].type != '\0') {
+      const Command cmd = memo[ite.r][ite.c];
+      ite = cmd.point;
+      command.push_back(cmd);
+    }
+    std::shared_ptr<Field> next = std::make_shared<Field>(best);
+    next->parent = best;
+    next->at(item.r, item.c) = 0;
+    next->prev_command = command;
+    next->Z -= next->prev_command.size();
+    next->score += std::max(0, (next->Z + 1) * (item.color - 1));
+    best = next;
+  }
+  return best;
+}
+
+std::vector<Command> solve() {
   std::shared_ptr<Field> best = field;
   for (;;) {
-    if (main_queue.empty()) {
-      break;
-    }
     if (timer.TLE()) {
       break;
     }
 
-    std::vector<Item> negatives;
-    while (!main_queue.empty()) {
-      Item item = main_queue.top();
-      main_queue.pop();
-
-      struct Node {
-        Point point;
-        Command command;
-      };
-      std::queue<Node> queue;
-      Command memo[MAX_N][MAX_N];
-      std::memset(memo, -1, sizeof(memo));
-      queue.push({{item.r, item.c}, {-1, -1, '\0', '\0'}});
-      Point hole{-1, -1};
-      while(!queue.empty()) {
-        Node node = queue.front();
-        queue.pop();
-        if (memo[node.point.r][node.point.c].type != -1) {
-          continue;
-        }
-        memo[node.point.r][node.point.c] = node.command;
-        if (best->at(node.point.r, node.point.c) == -1) {
-          hole = node.point;
-          break;
-        }
-        for (int index = 0; index < OFS.size(); ++index) {
-          Point np = {node.point.r + OFS[index][1], node.point.c + OFS[index][0]};
-          if (is_out(np)) {
-            continue;
-          }
-          if (best->at(np.r, np.c) > 0) {
-            continue;
-          }
-          queue.push({np, {node.point, 'M', DIR_COMMANDS[index]}});
-          for (;;) {
-            np.r += OFS[index][1];
-            np.c += OFS[index][0];
-            if (is_out(np) || best->at(np.r, np.c) > 0) {
-              np.r -= OFS[index][1];
-              np.c -= OFS[index][0];
-              break;
-            }
-            if (best->at(np.r, np.c) == -1) {
-              break;
-            }
-          }
-          queue.push({np, {node.point, 'S', DIR_COMMANDS[index]}});
-        }
-      }
-      if (hole.r == -1) {
-        negatives.push_back(item);
-        continue;
-      }
-      std::vector<Command> command;
-      Point ite = hole;
-      while (memo[ite.r][ite.c].type != '\0') {
-        const Command cmd = memo[ite.r][ite.c];
-        ite = cmd.point;
-        command.push_back(cmd);
-      }
-      std::shared_ptr<Field> next = std::make_shared<Field>(best);
-      next->parent = best;
-      next->at(item.r, item.c) = 0;
-      next->prev_command = command;
-      next->Z -= next->prev_command.size();
-      next->score += std::max(0, (next->Z + 1) * (item.color - 1));
-      best = next;
-    }
-
-    for (const auto& item : negatives) {
-      main_queue.push(item);
-    }
+    best = solve_greedy(best);
   }
 
   std::cerr << "Score: " << best->score << std::endl;
