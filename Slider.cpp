@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <iostream>
+#include <limits>
 #include <map>
 #include <set>
 #include <sstream>
@@ -48,6 +49,10 @@ bool is_out(const int r, const int c) {
 
 bool is_out(const Point& p) {
   return is_out(p.r, p.c);
+}
+
+int manhattan_distance(int x1, int y1, int x2, int y2) {
+  return std::abs(x2 - x1) + std::abs(y2 - y1);
 }
 
 struct Command {
@@ -98,21 +103,9 @@ struct Field {
 
 std::shared_ptr<Field> field;
 
-struct Item {
-  int color;
-  int r, c;
-  int score;
-};
-
 std::ostream& operator<<(std::ostream& os, const Point& p)
 {
   os << "(" << p.r << ", " << p.c << ")";
-  return os;
-}
-
-std::ostream& operator<<(std::ostream& os, const Item& item)
-{
-  os << "{point: " << Point{item.r, item.c} << ", color: " << item.color << ", score" << item.score << "}";
   return os;
 }
 
@@ -135,6 +128,20 @@ std::ostream& operator<<(std::ostream& os, const std::vector<T>& vec)
 }
 
 std::shared_ptr<Field> solve_greedy(const std::shared_ptr<Field> src) {
+  struct Item {
+    int color;
+    int r, c;
+    int score;
+  };
+
+  std::vector<Point> holes;
+  for (int r = 0; r < N; ++r) {
+    for (int c = 0; c < N; ++c) {
+      if (src->at(r, c) == -1) {
+        holes.push_back({r, c});
+      }
+    }
+  }
 
   auto main_queue_compare = [](const Item& l, const Item& r) {
     return l.score < r.score;
@@ -144,39 +151,11 @@ std::shared_ptr<Field> solve_greedy(const std::shared_ptr<Field> src) {
     for (int c = 0; c < N; ++c) {
       if (src->at(r, c) > 0) {
         Item item{src->at(r, c), r, c};
-        struct Node {
-          Point p;
-          int score;
-        };
-        const auto compare = [](const Node& l, const Node& r) {
-          return l.score > r.score;
-        };
-        std::priority_queue<Node, std::vector<Node>, decltype(compare)> queue{compare};
-        Node init{{r, c}, 0};
-        queue.push(init);
-        bool done[MAX_N][MAX_N] = {0};
-        int best = N * N;
-        while (!queue.empty()) {
-          Node node = queue.top();
-          queue.pop();
-          if (done[node.p.r][node.p.c]) {
-            continue;
-          }
-          done[node.p.r][node.p.c] = true;
-          if (src->at(node.p.r, node.p.c) == -1) {
-            best = node.score;
-            break;
-          }
-          for (const auto& D : OFS) {
-            const Point np{node.p.r + D[1], node.p.c + D[0]};
-            if (is_out(np)) {
-              continue;
-            }
-            Node next{np, node.score + 1};
-            queue.push(next);
-          }
+        int dist = std::numeric_limits<int>::max();
+        for (const auto& hole : holes) {
+          dist = std::min(dist, manhattan_distance(c, r, hole.c, hole.r));
         }
-        item.score = -(best * (MAX_C + 1) + MAX_C - src->at(r, c));
+        item.score = -(dist * (MAX_C + 1) + MAX_C - src->at(r, c));
         main_queue.push(item);
       }
     }
