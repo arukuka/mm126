@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <iostream>
+#include <iterator>
 #include <limits>
 #include <map>
 #include <set>
@@ -12,9 +13,24 @@
 #include <memory>
 #include <chrono>
 #include <cstring>
+#include <random>
+#include <unordered_map>
+#include <cassert>
+
+template<typename T>
+void debug_print(const std::string file, const int line, const std::string func, std::string name, const T& t)
+{
+  std::cerr << file << ":" << line << " (" << func << ") " << name << ": " << t << std::endl;
+}
+
+#define DBG(x) debug_print(__FILE__, __LINE__, __func__, #x, x)
 
 struct Point {
   int r, c;
+
+  bool operator==(const Point& p) const {
+    return r == p.r && c == p.c;
+  }
 };
 
 constexpr double TLE = 9.0;
@@ -39,6 +55,7 @@ struct Timer {
 };
 
 Timer timer;
+std::mt19937 random_engine(std::random_device{}());
 
 int N, C, H;
 
@@ -67,6 +84,7 @@ struct Field {
   int score;
   std::shared_ptr<Field> parent;
   std::vector<Command> prev_command;
+  int prev_target_color;
 
   Field(const std::shared_ptr<Field> parent)
       : Z(parent->Z), score(parent->score)
@@ -94,9 +112,15 @@ struct Field {
     return grid[r][c];
   }
   int& at(int r, int c) {
+#ifndef NDEBUG
+    assert(!is_out(r, c));
+#endif
     return grid[r][c];
   }
   const int& at(const int r, const int c) const {
+#ifndef NDEBUG
+    assert(!is_out(r, c));
+#endif
     return grid[r][c];
   }
 };
@@ -227,19 +251,253 @@ std::shared_ptr<Field> solve_greedy(const std::shared_ptr<Field> src) {
     next->prev_command = command;
     next->Z -= next->prev_command.size();
     next->score += std::max(0, (next->Z + 1) * (item.color - 1));
+    next->prev_target_color = item.color;
     best = next;
   }
   return best;
 }
 
+bool check(std::shared_ptr<Field> src, std::vector<Command>& commands, bool deep = false)
+{
+  Point point = commands.back().point;
+  if (src->at(point.r, point.c) <= 0) {
+    return false;
+  }
+  if (!deep) {
+    return true;
+  }
+  int rev_type[256];
+  for (int i = 0; DIR_COMMANDS[i] != '\0'; ++i) {
+    rev_type[DIR_COMMANDS[i]] = i;
+  }
+  for (auto command_ite = commands.rbegin(); command_ite != commands.rend(); command_ite++) {
+    const Command& command = *command_ite;
+    int dx = OFS[rev_type[command.dir]][0];
+    int dy = OFS[rev_type[command.dir]][1];
+    point.r += dy;
+    point.c += dx;
+    if (is_out(point) || src->at(point.r, point.c) > 0) {
+      return false;
+    }
+    if (command.type == 'S') {
+        for (;;) {
+          point.r += dy;
+          point.c += dx;
+          if (is_out(point) || src->at(point.r, point.c) > 0) {
+            point.r -= dy;
+            point.c -= dx;
+            break;
+          }
+          if (src->at(point.r, point.c) == -1) {
+            break;
+          }
+        }
+    }
+  }
+  return src->at(point.r, point.c) == -1;
+}
+
+std::shared_ptr<Field> use_history(
+    const std::shared_ptr<Field> src,
+    const std::vector<std::shared_ptr<Field>>& histories) {
+  std::shared_ptr<Field> applied = src;
+  int count = 0;
+  for (const std::shared_ptr<Field> history : histories) {
+    if (check(applied, history->prev_command)) {
+      if (!check(applied, history->prev_command, true)) {
+        DBG("CHECK ERROR!");
+      }
+      const auto point = history->prev_command.back().point;
+      const auto color = applied->at(point.r, point.c);
+      std::shared_ptr<Field> next = std::make_shared<Field>(applied);
+      next->parent = applied;
+      next->at(point.r, point.c) = 0;
+      next->prev_command = history->prev_command;
+      next->Z -= next->prev_command.size();
+      next->score += std::max(0, (next->Z + 1) * (color - 1));
+      next->prev_target_color = color;
+      applied = next;
+    } else {
+      ++count;
+    }
+  }
+  return applied;
+}
+
+std::shared_ptr<Field> neighbor_insert(const std::shared_ptr<Field> src)
+{
+  struct ScoredField {
+    std::shared_ptr<Field> field;
+    int score;
+  };
+  std::vector<ScoredField> nodes;
+  {
+    std::vector<ScoredField> all_state;
+    std::shared_ptr<Field> ite = src;
+    while (ite) {
+      ScoredField node;
+      node.field = ite;
+      node.score = std::max(0, ite->Z + static_cast<int>(ite->prev_command.size()) - 1) * (MAX_C + 1 - ite->prev_target_color);
+      all_state.push_back(node);
+      ite = ite->parent;
+    }
+    if (all_state.size() <= 2) {
+      return src;
+    }
+    std::reverse(all_state.begin(), all_state.end());
+    nodes.insert(nodes.end(), all_state.begin() + 1, all_state.end() - 1);
+  }
+  std::vector<int> score_roulette;
+  int score_acc = 0;
+  for (const auto& node : nodes) {
+    score_acc += node.score;
+    score_roulette.emplace_back(score_acc);
+  }
+  const auto target_ite = std::lower_bound(
+    score_roulette.begin(),
+    score_roulette.end(),
+    std::uniform_int_distribution<>{0, score_acc - 1}(random_engine)
+  );
+  if (target_ite == score_roulette.end()) {
+    DBG("OMG!");
+    return src;
+  }
+  const std::size_t target_index = std::distance(score_roulette.begin(), target_ite);
+  const std::shared_ptr<Field> target_child = nodes[target_index].field;
+  const std::shared_ptr<Field> target = target_child->parent;
+  const int target_child_score = target_child->score - target->score;
+
+  struct Item {
+    Point point;
+    int color;
+    std::size_t index;
+
+    bool operator==(const Item& item) const {
+      return index == item.index && point == item.point;
+    }
+    bool operator!=(const Item& item) const {
+      return !(this->operator==(item));
+    }
+  };
+  std::vector<Item> items;
+  for (int r = 0; r < N; ++r) {
+    for (int c = 0; c < N; ++c) {
+      if (target->at(r, c) <= target_child->prev_target_color) {
+        continue;
+      }
+      items.emplace_back(Item{Point{r, c}, target->at(r, c), items.size()});
+    }
+  }
+  if (items.size() == 0) {
+    return src;
+  }
+
+  struct Node {
+    Item item;
+    Command command;
+    int score;
+  };
+  struct ItemHasher {
+    std::size_t operator()(const Item& item) const {
+      return item.index * N * N + (item.point.r * N + item.point.c);
+    }
+  };
+  auto node_comparator = [](const Node& lhs, const Node& rhs) {
+    return lhs.score < rhs.score;
+  };
+  std::priority_queue<Node, std::vector<Node>, decltype(node_comparator)> queue{node_comparator};
+  std::unordered_map<Item, Command, ItemHasher> memo;
+  for (const auto& item : items) {
+    queue.emplace(Node{item, Command{-1, -1, '\0', '\0'}, target->Z * item.color});
+  }
+  Item hole{{-1, -1}, -1, items.size()};
+  while(!queue.empty()) {
+    Node node = queue.top();
+    queue.pop();
+    if (memo.count(node.item)) {
+      continue;
+    }
+    memo[node.item] = node.command;
+    if (target->at(node.item.point.r, node.item.point.c) == -1) {
+      hole = node.item;
+      break;
+    }
+
+    for (int index = 0; index < OFS.size(); ++index) {
+      Point np = {node.item.point.r + OFS[index][1], node.item.point.c + OFS[index][0]};
+      if (is_out(np)) {
+        continue;
+      }
+      if (target->at(np.r, np.c) > 0) {
+        continue;
+      }
+      queue.emplace(Node{
+        Item{np, node.item.color, node.item.index},
+        Command{node.item.point, 'M', DIR_COMMANDS[index]},
+        node.score - node.item.color
+      });
+      for (;;) {
+        np.r += OFS[index][1];
+        np.c += OFS[index][0];
+        if (is_out(np) || target->at(np.r, np.c) > 0) {
+          np.r -= OFS[index][1];
+          np.c -= OFS[index][0];
+          break;
+        }
+        if (target->at(np.r, np.c) == -1) {
+          break;
+        }
+      }
+      queue.emplace(Node{
+        Item{np, node.item.color, node.item.index},
+        Command{node.item.point, 'S', DIR_COMMANDS[index]},
+        node.score - node.item.color
+      });
+    }
+  }
+  if (hole.color == -1) {
+    return src;
+  }
+
+  const Item item = items[hole.index];
+  std::vector<Command> command;
+  Item ite = hole;
+  while (memo[ite].type != '\0') {
+    const Command cmd = memo[ite];
+    ite.point = cmd.point;
+    command.push_back(cmd);
+  }
+  std::shared_ptr<Field> next = std::make_shared<Field>(target);
+  next->parent = target;
+  next->at(item.point.r, item.point.c) = 0;
+  next->prev_command = command;
+  next->Z -= next->prev_command.size();
+  next->score += std::max(0, (next->Z + 1) * (item.color - 1));
+  next->prev_target_color = item.color;
+
+  std::vector<std::shared_ptr<Field>> histories;
+  for (int i = target_index; i < nodes.size(); ++i) {
+    histories.emplace_back(nodes[i].field);
+  }
+  next = use_history(next, histories);
+
+  next = solve_greedy(next);
+  return next;
+}
+
 std::vector<Command> solve() {
-  std::shared_ptr<Field> best = field;
+  std::shared_ptr<Field> best = solve_greedy(field);
+
   for (;;) {
     if (timer.TLE()) {
       break;
     }
 
-    best = solve_greedy(best);
+    std::shared_ptr<Field> next = neighbor_insert(best);
+
+    if (next->score > best->score) {
+      best = next;
+    }
   }
 
   std::cerr << "Score: " << best->score << std::endl;
