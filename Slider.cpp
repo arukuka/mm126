@@ -151,6 +151,74 @@ std::ostream& operator<<(std::ostream& os, const std::vector<T>& vec)
   return os;
 }
 
+std::shared_ptr<Field> bfs(const std::shared_ptr<Field> src, const Point& target_point)
+{
+  struct Node {
+    Point point;
+    Command command;
+  };
+  std::queue<Node> queue;
+  Command memo[MAX_N][MAX_N];
+  std::memset(memo, -1, sizeof(memo));
+  queue.push({target_point, {-1, -1, '\0', '\0'}});
+  Point hole{-1, -1};
+  while(!queue.empty()) {
+    Node node = queue.front();
+    queue.pop();
+    if (memo[node.point.r][node.point.c].type != -1) {
+      continue;
+    }
+    memo[node.point.r][node.point.c] = node.command;
+    if (src->at(node.point.r, node.point.c) == -1) {
+      hole = node.point;
+      break;
+    }
+    for (int index = 0; index < OFS.size(); ++index) {
+      Point np = {node.point.r + OFS[index][1], node.point.c + OFS[index][0]};
+      if (is_out(np)) {
+        continue;
+      }
+      if (src->at(np.r, np.c) > 0) {
+        continue;
+      }
+      queue.push({np, {node.point, 'M', DIR_COMMANDS[index]}});
+      for (;;) {
+        np.r += OFS[index][1];
+        np.c += OFS[index][0];
+        if (is_out(np) || src->at(np.r, np.c) > 0) {
+          np.r -= OFS[index][1];
+          np.c -= OFS[index][0];
+          break;
+        }
+        if (src->at(np.r, np.c) == -1) {
+          break;
+        }
+      }
+      queue.push({np, {node.point, 'S', DIR_COMMANDS[index]}});
+    }
+  }
+  if (hole.r == -1) {
+    return src;
+  }
+  std::vector<Command> command;
+  Point ite = hole;
+  while (memo[ite.r][ite.c].type != '\0') {
+    const Command cmd = memo[ite.r][ite.c];
+    ite = cmd.point;
+    command.push_back(cmd);
+  }
+  std::shared_ptr<Field> next = std::make_shared<Field>(src);
+  const int target_color = src->at(target_point.r, target_point.c) ;
+  next->parent = src;
+  next->at(target_point.r, target_point.c) = 0;
+  next->prev_command = command;
+  next->Z -= next->prev_command.size();
+  next->score += std::max(0, (next->Z + 1) * (target_color - 1));
+  next->prev_target_color = target_color;
+
+  return next;
+}
+
 std::shared_ptr<Field> solve_greedy(const std::shared_ptr<Field> src) {
   struct Item {
     int color;
@@ -191,68 +259,7 @@ std::shared_ptr<Field> solve_greedy(const std::shared_ptr<Field> src) {
     Item item = main_queue.top();
     main_queue.pop();
 
-    struct Node {
-      Point point;
-      Command command;
-    };
-    std::queue<Node> queue;
-    Command memo[MAX_N][MAX_N];
-    std::memset(memo, -1, sizeof(memo));
-    queue.push({{item.r, item.c}, {-1, -1, '\0', '\0'}});
-    Point hole{-1, -1};
-    while(!queue.empty()) {
-      Node node = queue.front();
-      queue.pop();
-      if (memo[node.point.r][node.point.c].type != -1) {
-        continue;
-      }
-      memo[node.point.r][node.point.c] = node.command;
-      if (best->at(node.point.r, node.point.c) == -1) {
-        hole = node.point;
-        break;
-      }
-      for (int index = 0; index < OFS.size(); ++index) {
-        Point np = {node.point.r + OFS[index][1], node.point.c + OFS[index][0]};
-        if (is_out(np)) {
-          continue;
-        }
-        if (best->at(np.r, np.c) > 0) {
-          continue;
-        }
-        queue.push({np, {node.point, 'M', DIR_COMMANDS[index]}});
-        for (;;) {
-          np.r += OFS[index][1];
-          np.c += OFS[index][0];
-          if (is_out(np) || best->at(np.r, np.c) > 0) {
-            np.r -= OFS[index][1];
-            np.c -= OFS[index][0];
-            break;
-          }
-          if (best->at(np.r, np.c) == -1) {
-            break;
-          }
-        }
-        queue.push({np, {node.point, 'S', DIR_COMMANDS[index]}});
-      }
-    }
-    if (hole.r == -1) {
-      continue;
-    }
-    std::vector<Command> command;
-    Point ite = hole;
-    while (memo[ite.r][ite.c].type != '\0') {
-      const Command cmd = memo[ite.r][ite.c];
-      ite = cmd.point;
-      command.push_back(cmd);
-    }
-    std::shared_ptr<Field> next = std::make_shared<Field>(best);
-    next->parent = best;
-    next->at(item.r, item.c) = 0;
-    next->prev_command = command;
-    next->Z -= next->prev_command.size();
-    next->score += std::max(0, (next->Z + 1) * (item.color - 1));
-    next->prev_target_color = item.color;
-    best = next;
+    best = bfs(best, {item.r, item.c});
   }
   return best;
 }
@@ -301,24 +308,22 @@ std::shared_ptr<Field> use_history(
     const std::shared_ptr<Field> src,
     const std::vector<std::shared_ptr<Field>>& histories) {
   std::shared_ptr<Field> applied = src;
-  int count = 0;
   for (const std::shared_ptr<Field> history : histories) {
     if (check(applied, history->prev_command)) {
       if (!check(applied, history->prev_command, true)) {
-        DBG("CHECK ERROR!");
+        applied = bfs(applied, history->prev_command.back().point);
+      } else {
+        const auto point = history->prev_command.back().point;
+        const auto color = applied->at(point.r, point.c);
+        std::shared_ptr<Field> next = std::make_shared<Field>(applied);
+        next->parent = applied;
+        next->at(point.r, point.c) = 0;
+        next->prev_command = history->prev_command;
+        next->Z -= next->prev_command.size();
+        next->score += std::max(0, (next->Z + 1) * (color - 1));
+        next->prev_target_color = color;
+        applied = next;
       }
-      const auto point = history->prev_command.back().point;
-      const auto color = applied->at(point.r, point.c);
-      std::shared_ptr<Field> next = std::make_shared<Field>(applied);
-      next->parent = applied;
-      next->at(point.r, point.c) = 0;
-      next->prev_command = history->prev_command;
-      next->Z -= next->prev_command.size();
-      next->score += std::max(0, (next->Z + 1) * (color - 1));
-      next->prev_target_color = color;
-      applied = next;
-    } else {
-      ++count;
     }
   }
   return applied;
