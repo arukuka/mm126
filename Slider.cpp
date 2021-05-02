@@ -157,6 +157,98 @@ public:
   }
 };
 
+template<int GRID_SIZE>
+struct _Field<1, GRID_SIZE> {
+  using this_type = _Field<1, GRID_SIZE>;
+  using cell_type = std::uint8_t;
+  using cell_vec_type = std::uint64_t;
+  static constexpr int CELL_BITS = 4;
+  static constexpr int CELL_VEC_BITS = sizeof(cell_vec_type) * 8;
+  static constexpr cell_type MASK = (1 << CELL_BITS) - 1;
+  static constexpr cell_type HOLE = (1 << CELL_BITS) - 1;
+  static_assert((static_cast<cell_type>(-1) & MASK) == HOLE, "");
+  static constexpr int CELL_VEC_NUMS
+      = (GRID_SIZE * GRID_SIZE + (GRID_SIZE - 1)) // maximum access
+        * CELL_BITS / CELL_VEC_BITS
+        + 1;
+
+  int Z;
+  cell_vec_type grid[CELL_VEC_NUMS];
+  int score;
+  std::shared_ptr<this_type> parent;
+  std::vector<Command> prev_command;
+  cell_type prev_target_color;
+
+  _Field<1, GRID_SIZE>(const std::shared_ptr<this_type> parent)
+      : Z(parent->Z), score(parent->score)
+      , parent(parent), prev_command() {
+    std::memcpy(grid, parent->grid, sizeof(grid));
+  }
+  _Field<1, GRID_SIZE>(const this_type& parent)
+      : Z(parent.Z), score(parent.score)
+      , prev_command() {
+    std::memcpy(grid, parent.grid, sizeof(grid));
+  }
+  _Field<1, GRID_SIZE>() {}
+
+private:
+  struct CellAccessInfo {
+    std::uint16_t index;
+    std::uint16_t shift;
+    CellAccessInfo(const int r, const int c) {
+      const int bits = (r * GRID_SIZE + c) * CELL_BITS;
+      this->index = bits / CELL_VEC_BITS;
+      this->shift = bits % CELL_VEC_BITS;
+      assert(this->index < CELL_VEC_NUMS);
+    }
+  };
+  const cell_type at(const int r, const int c) const {
+#ifndef NDEBUG
+    assert(!is_out(r, c));
+#endif
+    const CellAccessInfo info{r, c};
+    return static_cast<cell_type>((grid[info.index] >> info.shift) & MASK);
+  }
+public:
+
+  bool is_block(const int r, const int c) const {
+    return !is_hole(r, c) && at(r, c) > 0;
+  }
+
+  bool is_hole(const int r, const int c) const {
+    return at(r, c) == HOLE;
+  }
+
+  cell_type get_block_color(const int r, const int c) const {
+    assert(!is_hole(r, c));
+    return at(r, c);
+  }
+
+  void set(const int r, const int c, const cell_type v) {
+    clear(r, c);
+    const CellAccessInfo info{r, c};
+    grid[info.index] |= static_cast<cell_vec_type>(v & MASK) << info.shift;
+  }
+
+  void clear(const int r, const int c) {
+    const CellAccessInfo info{r, c};
+    grid[info.index] &= ~(static_cast<cell_vec_type>(MASK) << info.shift);
+  }
+
+  static std::shared_ptr<this_type> make_child(std::shared_ptr<this_type> parent, std::vector<Command>& command) {
+    const auto point = command.back().point;
+    const auto color = parent->at(point.r, point.c);
+    std::shared_ptr<this_type> next = std::make_shared<this_type>(parent);
+    next->parent = parent;
+    next->clear(point.r, point.c);
+    next->prev_command = command;
+    next->Z -= next->prev_command.size();
+    next->score += std::max(0, (next->Z + 1) * (color - 1));
+    next->prev_target_color = color;
+    return next;
+  }
+};
+
 using Field = _Field<0>;
 
 std::shared_ptr<Field> field;
