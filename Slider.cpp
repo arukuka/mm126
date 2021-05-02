@@ -249,7 +249,7 @@ std::shared_ptr<Field> bfs(const std::shared_ptr<Field> src, const Point& target
 
 std::shared_ptr<Field> pseudo_dijkstra(const std::shared_ptr<Field> src, int filter_color = 0)
 {
-    struct Item {
+  struct Item {
     Point point;
     int color;
     std::size_t index;
