@@ -78,52 +78,85 @@ struct Command {
   char dir;
 };
 
-struct Field {
+template <int ver>
+struct _Field;
+
+template<>
+struct _Field<0> {
+  using this_type = _Field<0>;
+  using cell_type = int;
+  static constexpr cell_type HOLE = -1;
+
   int Z;
-  int grid[MAX_N][MAX_N];
+  cell_type grid[MAX_N][MAX_N];
   int score;
-  std::shared_ptr<Field> parent;
+  std::shared_ptr<this_type> parent;
   std::vector<Command> prev_command;
   int prev_target_color;
 
-  Field(const std::shared_ptr<Field> parent)
+  _Field<0>(const std::shared_ptr<this_type> parent)
       : Z(parent->Z), score(parent->score)
       , parent(parent), prev_command() {
     std::memcpy(grid, parent->grid, sizeof(grid));
   }
-  Field(const Field& parent)
+  _Field<0>(const this_type& parent)
       : Z(parent.Z), score(parent.score)
       , prev_command() {
     std::memcpy(grid, parent.grid, sizeof(grid));
   }
-  Field() {}
+  _Field<0>() {}
 
-  int* operator [](const int index) {
-    return grid[index];
-  }
-  const int* operator [](const int index) const {
-    return grid[index];
-  }
-
-  int& operator()(const int r, const int c) {
-    return grid[r][c];
-  }
-  const int& operator()(const int r, const int c) const {
-    return grid[r][c];
-  }
-  int& at(int r, int c) {
+private:
+  cell_type& at(int r, int c) {
 #ifndef NDEBUG
     assert(!is_out(r, c));
 #endif
     return grid[r][c];
   }
-  const int& at(const int r, const int c) const {
+  const cell_type& at(const int r, const int c) const {
 #ifndef NDEBUG
     assert(!is_out(r, c));
 #endif
     return grid[r][c];
+  }
+public:
+
+  bool is_block(const int r, const int c) const {
+    return grid[r][c] > 0;
+  }
+
+  bool is_hole(const int r, const int c) const {
+    return grid[r][c] == HOLE;
+  }
+
+  int get_block_color(const int r, const int c) const {
+    assert(is_block(r, c));
+    return grid[r][c];
+  }
+
+  void set(const int r, const int c, const cell_type v) {
+    grid[r][c] = v;
+  }
+
+  void clear(const int r, const int c) {
+    grid[r][c] = 0;
+  }
+
+  static std::shared_ptr<this_type> make_child(std::shared_ptr<this_type> parent, std::vector<Command>& command) {
+    const auto point = command.back().point;
+    const auto color = parent->at(point.r, point.c);
+    std::shared_ptr<this_type> next = std::make_shared<this_type>(parent);
+    next->parent = parent;
+    next->at(point.r, point.c) = 0;
+    next->prev_command = command;
+    next->Z -= next->prev_command.size();
+    next->score += std::max(0, (next->Z + 1) * (color - 1));
+    next->prev_target_color = color;
+    return next;
   }
 };
+
+using Field = _Field<0>;
 
 std::shared_ptr<Field> field;
 
@@ -169,7 +202,7 @@ std::shared_ptr<Field> bfs(const std::shared_ptr<Field> src, const Point& target
       continue;
     }
     memo[node.point.r][node.point.c] = node.command;
-    if (src->at(node.point.r, node.point.c) == -1) {
+    if (src->is_hole(node.point.r, node.point.c)) {
       hole = node.point;
       break;
     }
@@ -178,19 +211,19 @@ std::shared_ptr<Field> bfs(const std::shared_ptr<Field> src, const Point& target
       if (is_out(np)) {
         continue;
       }
-      if (src->at(np.r, np.c) > 0) {
+      if (src->is_block(np.r, np.c)) {
         continue;
       }
       queue.push({np, {node.point, 'M', DIR_COMMANDS[index]}});
       for (;;) {
         np.r += OFS[index][1];
         np.c += OFS[index][0];
-        if (is_out(np) || src->at(np.r, np.c) > 0) {
+        if (is_out(np) || src->is_block(np.r, np.c)) {
           np.r -= OFS[index][1];
           np.c -= OFS[index][0];
           break;
         }
-        if (src->at(np.r, np.c) == -1) {
+        if (src->is_hole(np.r, np.c)) {
           break;
         }
       }
@@ -207,14 +240,7 @@ std::shared_ptr<Field> bfs(const std::shared_ptr<Field> src, const Point& target
     ite = cmd.point;
     command.push_back(cmd);
   }
-  std::shared_ptr<Field> next = std::make_shared<Field>(src);
-  const int target_color = src->at(target_point.r, target_point.c) ;
-  next->parent = src;
-  next->at(target_point.r, target_point.c) = 0;
-  next->prev_command = command;
-  next->Z -= next->prev_command.size();
-  next->score += std::max(0, (next->Z + 1) * (target_color - 1));
-  next->prev_target_color = target_color;
+  std::shared_ptr<Field> next = Field::make_child(src, command);
 
   return next;
 }
@@ -237,10 +263,10 @@ std::shared_ptr<Field> pseudo_dijkstra(const std::shared_ptr<Field> src, int fil
   std::vector<Item> items;
   for (int r = 0; r < N; ++r) {
     for (int c = 0; c < N; ++c) {
-      if (src->at(r, c) <= filter_color) {
+      if (src->get_block_color(r, c) <= filter_color) {
         continue;
       }
-      items.emplace_back(Item{Point{r, c}, src->at(r, c), items.size()});
+      items.emplace_back(Item{Point{r, c}, src->get_block_color(r, c), items.size()});
     }
   }
   if (items.size() == 0) {
@@ -273,7 +299,7 @@ std::shared_ptr<Field> pseudo_dijkstra(const std::shared_ptr<Field> src, int fil
       continue;
     }
     memo[node.item] = node.command;
-    if (src->at(node.item.point.r, node.item.point.c) == -1) {
+    if (src->is_hole(node.item.point.r, node.item.point.c)) {
       hole = node.item;
       break;
     }
@@ -283,7 +309,7 @@ std::shared_ptr<Field> pseudo_dijkstra(const std::shared_ptr<Field> src, int fil
       if (is_out(np)) {
         continue;
       }
-      if (src->at(np.r, np.c) > 0) {
+      if (src->is_block(np.r, np.c)) {
         continue;
       }
       queue.emplace(Node{
@@ -294,12 +320,12 @@ std::shared_ptr<Field> pseudo_dijkstra(const std::shared_ptr<Field> src, int fil
       for (;;) {
         np.r += OFS[index][1];
         np.c += OFS[index][0];
-        if (is_out(np) || src->at(np.r, np.c) > 0) {
+        if (is_out(np) || src->is_block(np.r, np.c)) {
           np.r -= OFS[index][1];
           np.c -= OFS[index][0];
           break;
         }
-        if (src->at(np.r, np.c) == -1) {
+        if (src->is_hole(np.r, np.c)) {
           break;
         }
       }
@@ -322,13 +348,7 @@ std::shared_ptr<Field> pseudo_dijkstra(const std::shared_ptr<Field> src, int fil
     ite.point = cmd.point;
     command.push_back(cmd);
   }
-  std::shared_ptr<Field> next = std::make_shared<Field>(src);
-  next->parent = src;
-  next->at(item.point.r, item.point.c) = 0;
-  next->prev_command = command;
-  next->Z -= next->prev_command.size();
-  next->score += std::max(0, (next->Z + 1) * (item.color - 1));
-  next->prev_target_color = item.color;
+  std::shared_ptr<Field> next = Field::make_child(src, command);
 
   return next;
 }
@@ -343,7 +363,7 @@ std::shared_ptr<Field> solve_greedy(const std::shared_ptr<Field> src) {
   std::vector<Point> holes;
   for (int r = 0; r < N; ++r) {
     for (int c = 0; c < N; ++c) {
-      if (src->at(r, c) == -1) {
+      if (src->is_hole(r, c)) {
         holes.push_back({r, c});
       }
     }
@@ -355,13 +375,13 @@ std::shared_ptr<Field> solve_greedy(const std::shared_ptr<Field> src) {
   std::priority_queue<Item, std::vector<Item>, decltype(main_queue_compare)> main_queue{main_queue_compare};
   for (int r = 0; r < N; ++r) {
     for (int c = 0; c < N; ++c) {
-      if (src->at(r, c) > 0) {
-        Item item{src->at(r, c), r, c};
+      if (src->is_block(r, c)) {
+        Item item{src->get_block_color(r, c), r, c};
         int dist = std::numeric_limits<int>::max();
         for (const auto& hole : holes) {
           dist = std::min(dist, manhattan_distance(c, r, hole.c, hole.r));
         }
-        item.score = -(dist * (MAX_C + 1) + MAX_C - src->at(r, c));
+        item.score = -(dist * (MAX_C + 1) + MAX_C - src->get_block_color(r, c));
         main_queue.push(item);
       }
     }
@@ -381,7 +401,7 @@ std::shared_ptr<Field> solve_greedy(const std::shared_ptr<Field> src) {
 bool check(std::shared_ptr<Field> src, std::vector<Command>& commands, bool deep = false)
 {
   Point point = commands.back().point;
-  if (src->at(point.r, point.c) <= 0) {
+  if (!src->is_block(point.r, point.c)) {
     return false;
   }
   if (!deep) {
@@ -397,25 +417,25 @@ bool check(std::shared_ptr<Field> src, std::vector<Command>& commands, bool deep
     int dy = OFS[rev_type[command.dir]][1];
     point.r += dy;
     point.c += dx;
-    if (is_out(point) || src->at(point.r, point.c) > 0) {
+    if (is_out(point) || src->is_block(point.r, point.c)) {
       return false;
     }
     if (command.type == 'S') {
         for (;;) {
           point.r += dy;
           point.c += dx;
-          if (is_out(point) || src->at(point.r, point.c) > 0) {
+          if (is_out(point) || src->is_block(point.r, point.c)) {
             point.r -= dy;
             point.c -= dx;
             break;
           }
-          if (src->at(point.r, point.c) == -1) {
+          if (src->is_hole(point.r, point.c)) {
             break;
           }
         }
     }
   }
-  return src->at(point.r, point.c) == -1;
+  return src->is_hole(point.r, point.c);
 }
 
 std::shared_ptr<Field> use_history(
@@ -427,16 +447,7 @@ std::shared_ptr<Field> use_history(
       if (!check(applied, history->prev_command, true)) {
         applied = bfs(applied, history->prev_command.back().point);
       } else {
-        const auto point = history->prev_command.back().point;
-        const auto color = applied->at(point.r, point.c);
-        std::shared_ptr<Field> next = std::make_shared<Field>(applied);
-        next->parent = applied;
-        next->at(point.r, point.c) = 0;
-        next->prev_command = history->prev_command;
-        next->Z -= next->prev_command.size();
-        next->score += std::max(0, (next->Z + 1) * (color - 1));
-        next->prev_target_color = color;
-        applied = next;
+        applied = Field::make_child(applied, history->prev_command);
       }
     }
   }
@@ -501,8 +512,10 @@ std::shared_ptr<Field> neighbor_insert(const std::shared_ptr<Field> src)
 std::vector<Command> solve() {
   std::shared_ptr<Field> best = solve_greedy(field);
 
-  for (;;) {
+  int iteration;
+  for (int iteration = 0;; ++iteration) {
     if (timer.TLE()) {
+      DBG(iteration);
       break;
     }
 
@@ -533,10 +546,10 @@ void cal_max_score() {
   std::vector<int> blocks;
   for (int r = 0; r < N; ++r) {
     for (int c = 0; c < N; ++c) {
-      const auto v = field->at(r, c);
-      if (v > 1) {
-        blocks.push_back(v);
+      if (!field->is_block(r, c)) {
+        continue;
       }
+      blocks.push_back(field->get_block_color(r, c));
     }
   }
   std::sort(blocks.begin(), blocks.end(), std::greater<int>{});
@@ -557,7 +570,9 @@ int main(const int argc, const char** argv) {
   for (int k = 0; k < N * N; k++) {
     int r = k / N;
     int c = k % N;
-    std::cin >> field->at(r, c);
+    int v;
+    std::cin >> v;
+    field->set(r, c, v);
   }
 
   field->Z = N * N;
