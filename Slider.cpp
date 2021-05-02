@@ -1,5 +1,6 @@
 // C++11
 #include <algorithm>
+#include <cstdint>
 #include <cstdlib>
 #include <iostream>
 #include <iterator>
@@ -78,13 +79,13 @@ struct Command {
   char dir;
 };
 
-template <int ver>
+template <int... args>
 struct _Field;
 
 template<>
 struct _Field<0> {
   using this_type = _Field<0>;
-  using cell_type = int;
+  using cell_type = std::int8_t;
   static constexpr cell_type HOLE = -1;
 
   int Z;
@@ -263,6 +264,9 @@ std::shared_ptr<Field> pseudo_dijkstra(const std::shared_ptr<Field> src, int fil
   std::vector<Item> items;
   for (int r = 0; r < N; ++r) {
     for (int c = 0; c < N; ++c) {
+      if (!src->is_block(r, c)) {
+        continue;
+      }
       if (src->get_block_color(r, c) <= filter_color) {
         continue;
       }
