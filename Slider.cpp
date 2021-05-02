@@ -219,6 +219,120 @@ std::shared_ptr<Field> bfs(const std::shared_ptr<Field> src, const Point& target
   return next;
 }
 
+
+std::shared_ptr<Field> pseudo_dijkstra(const std::shared_ptr<Field> src, int filter_color = 0)
+{
+    struct Item {
+    Point point;
+    int color;
+    std::size_t index;
+
+    bool operator==(const Item& item) const {
+      return index == item.index && point == item.point;
+    }
+    bool operator!=(const Item& item) const {
+      return !(this->operator==(item));
+    }
+  };
+  std::vector<Item> items;
+  for (int r = 0; r < N; ++r) {
+    for (int c = 0; c < N; ++c) {
+      if (src->at(r, c) <= filter_color) {
+        continue;
+      }
+      items.emplace_back(Item{Point{r, c}, src->at(r, c), items.size()});
+    }
+  }
+  if (items.size() == 0) {
+    return src;
+  }
+
+  struct Node {
+    Item item;
+    Command command;
+    int score;
+  };
+  struct ItemHasher {
+    std::size_t operator()(const Item& item) const {
+      return item.index * N * N + (item.point.r * N + item.point.c);
+    }
+  };
+  auto node_comparator = [](const Node& lhs, const Node& rhs) {
+    return lhs.score < rhs.score;
+  };
+  std::priority_queue<Node, std::vector<Node>, decltype(node_comparator)> queue{node_comparator};
+  std::unordered_map<Item, Command, ItemHasher> memo;
+  for (const auto& item : items) {
+    queue.emplace(Node{item, Command{-1, -1, '\0', '\0'}, src->Z * item.color});
+  }
+  Item hole{{-1, -1}, -1, items.size()};
+  while(!queue.empty()) {
+    Node node = queue.top();
+    queue.pop();
+    if (memo.count(node.item)) {
+      continue;
+    }
+    memo[node.item] = node.command;
+    if (src->at(node.item.point.r, node.item.point.c) == -1) {
+      hole = node.item;
+      break;
+    }
+
+    for (int index = 0; index < OFS.size(); ++index) {
+      Point np = {node.item.point.r + OFS[index][1], node.item.point.c + OFS[index][0]};
+      if (is_out(np)) {
+        continue;
+      }
+      if (src->at(np.r, np.c) > 0) {
+        continue;
+      }
+      queue.emplace(Node{
+        Item{np, node.item.color, node.item.index},
+        Command{node.item.point, 'M', DIR_COMMANDS[index]},
+        node.score - node.item.color
+      });
+      for (;;) {
+        np.r += OFS[index][1];
+        np.c += OFS[index][0];
+        if (is_out(np) || src->at(np.r, np.c) > 0) {
+          np.r -= OFS[index][1];
+          np.c -= OFS[index][0];
+          break;
+        }
+        if (src->at(np.r, np.c) == -1) {
+          break;
+        }
+      }
+      queue.emplace(Node{
+        Item{np, node.item.color, node.item.index},
+        Command{node.item.point, 'S', DIR_COMMANDS[index]},
+        node.score - node.item.color
+      });
+    }
+  }
+  if (hole.color == -1) {
+    return src;
+  }
+
+  const Item item = items[hole.index];
+  std::vector<Command> command;
+  Item ite = hole;
+  while (memo[ite].type != '\0') {
+    const Command cmd = memo[ite];
+    ite.point = cmd.point;
+    command.push_back(cmd);
+  }
+  std::shared_ptr<Field> next = std::make_shared<Field>(src);
+  next->parent = src;
+  next->at(item.point.r, item.point.c) = 0;
+  next->prev_command = command;
+  next->Z -= next->prev_command.size();
+  next->score += std::max(0, (next->Z + 1) * (item.color - 1));
+  next->prev_target_color = item.color;
+
+  return next;
+}
+
 std::shared_ptr<Field> solve_greedy(const std::shared_ptr<Field> src) {
   struct Item {
     int color;
@@ -372,113 +486,7 @@ std::shared_ptr<Field> neighbor_insert(const std::shared_ptr<Field> src)
   const std::shared_ptr<Field> target = target_child->parent;
   const int target_child_score = target_child->score - target->score;
 
-  struct Item {
-    Point point;
-    int color;
-    std::size_t index;
-
-    bool operator==(const Item& item) const {
-      return index == item.index && point == item.point;
-    }
-    bool operator!=(const Item& item) const {
-      return !(this->operator==(item));
-    }
-  };
-  std::vector<Item> items;
-  for (int r = 0; r < N; ++r) {
-    for (int c = 0; c < N; ++c) {
-      if (target->at(r, c) <= target_child->prev_target_color) {
-        continue;
-      }
-      items.emplace_back(Item{Point{r, c}, target->at(r, c), items.size()});
-    }
-  }
-  if (items.size() == 0) {
-    return src;
-  }
-
-  struct Node {
-    Item item;
-    Command command;
-    int score;
-  };
-  struct ItemHasher {
-    std::size_t operator()(const Item& item) const {
-      return item.index * N * N + (item.point.r * N + item.point.c);
-    }
-  };
-  auto node_comparator = [](const Node& lhs, const Node& rhs) {
-    return lhs.score < rhs.score;
-  };
-  std::priority_queue<Node, std::vector<Node>, decltype(node_comparator)> queue{node_comparator};
-  std::unordered_map<Item, Command, ItemHasher> memo;
-  for (const auto& item : items) {
-    queue.emplace(Node{item, Command{-1, -1, '\0', '\0'}, target->Z * item.color});
-  }
-  Item hole{{-1, -1}, -1, items.size()};
-  while(!queue.empty()) {
-    Node node = queue.top();
-    queue.pop();
-    if (memo.count(node.item)) {
-      continue;
-    }
-    memo[node.item] = node.command;
-    if (target->at(node.item.point.r, node.item.point.c) == -1) {
-      hole = node.item;
-      break;
-    }
-
-    for (int index = 0; index < OFS.size(); ++index) {
-      Point np = {node.item.point.r + OFS[index][1], node.item.point.c + OFS[index][0]};
-      if (is_out(np)) {
-        continue;
-      }
-      if (target->at(np.r, np.c) > 0) {
-        continue;
-      }
-      queue.emplace(Node{
-        Item{np, node.item.color, node.item.index},
-        Command{node.item.point, 'M', DIR_COMMANDS[index]},
-        node.score - node.item.color
-      });
-      for (;;) {
-        np.r += OFS[index][1];
-        np.c += OFS[index][0];
-        if (is_out(np) || target->at(np.r, np.c) > 0) {
-          np.r -= OFS[index][1];
-          np.c -= OFS[index][0];
-          break;
-        }
-        if (target->at(np.r, np.c) == -1) {
-          break;
-        }
-      }
-      queue.emplace(Node{
-        Item{np, node.item.color, node.item.index},
-        Command{node.item.point, 'S', DIR_COMMANDS[index]},
-        node.score - node.item.color
-      });
-    }
-  }
-  if (hole.color == -1) {
-    return src;
-  }
-
-  const Item item = items[hole.index];
-  std::vector<Command> command;
-  Item ite = hole;
-  while (memo[ite].type != '\0') {
-    const Command cmd = memo[ite];
-    ite.point = cmd.point;
-    command.push_back(cmd);
-  }
-  std::shared_ptr<Field> next = std::make_shared<Field>(target);
-  next->parent = target;
-  next->at(item.point.r, item.point.c) = 0;
-  next->prev_command = command;
-  next->Z -= next->prev_command.size();
-  next->score += std::max(0, (next->Z + 1) * (item.color - 1));
-  next->prev_target_color = item.color;
+  std::shared_ptr<Field> next = pseudo_dijkstra(target, target_child->prev_target_color);
 
   std::vector<std::shared_ptr<Field>> histories;
   for (int i = target_index; i < nodes.size(); ++i) {
