@@ -27,7 +27,7 @@ void debug_print(const std::string file, const int line, const std::string func,
 #define DBG(x) debug_print(__FILE__, __LINE__, __func__, #x, x)
 
 struct Point {
-  int r, c;
+  std::int8_t r, c;
 
   bool operator==(const Point& p) const {
     return r == p.r && c == p.c;
@@ -37,7 +37,7 @@ struct Point {
 constexpr double TLE = 9.0;
 constexpr int MAX_N = 30;
 constexpr int MAX_C = 9;
-constexpr std::array<std::array<int, 2>, 4> OFS{{
+constexpr std::array<std::array<std::int8_t, 2>, 4> OFS{{
   {1, 0},
   {0, 1},
   {-1, 0},
@@ -255,13 +255,13 @@ std::shared_ptr<Field> field;
 
 std::ostream& operator<<(std::ostream& os, const Point& p)
 {
-  os << "(" << p.r << ", " << p.c << ")";
+  os << "(" << static_cast<int>(p.r) << ", " << static_cast<int>(p.c) << ")";
   return os;
 }
 
 std::ostream& operator<<(std::ostream& os, const Command& cmd)
 {
-  os << cmd.point.r << " " << cmd.point.c << " " << cmd.type << " " << cmd.dir;
+  os << static_cast<int>(cmd.point.r) << " " << static_cast<int>(cmd.point.c) << " " << cmd.type << " " << cmd.dir;
   return os;
 }
 
@@ -300,7 +300,7 @@ std::shared_ptr<Field> bfs(const std::shared_ptr<Field> src, const Point& target
       break;
     }
     for (int index = 0; index < OFS.size(); ++index) {
-      Point np = {node.point.r + OFS[index][1], node.point.c + OFS[index][0]};
+      Point np = {static_cast<int8_t>(node.point.r + OFS[index][1]), static_cast<int8_t>(node.point.c + OFS[index][0])};
       if (is_out(np)) {
         continue;
       }
@@ -354,8 +354,8 @@ std::shared_ptr<Field> pseudo_dijkstra(const std::shared_ptr<Field> src, int fil
     }
   };
   std::vector<Item> items;
-  for (int r = 0; r < N; ++r) {
-    for (int c = 0; c < N; ++c) {
+  for (std::int8_t r = 0; r < N; ++r) {
+    for (std::int8_t c = 0; c < N; ++c) {
       if (!src->is_block(r, c)) {
         continue;
       }
@@ -401,7 +401,7 @@ std::shared_ptr<Field> pseudo_dijkstra(const std::shared_ptr<Field> src, int fil
     }
 
     for (int index = 0; index < OFS.size(); ++index) {
-      Point np = {node.item.point.r + OFS[index][1], node.item.point.c + OFS[index][0]};
+      Point np = {static_cast<std::int8_t>(node.item.point.r + OFS[index][1]), static_cast<std::int8_t>(node.item.point.c + OFS[index][0])};
       if (is_out(np)) {
         continue;
       }
@@ -452,13 +452,13 @@ std::shared_ptr<Field> pseudo_dijkstra(const std::shared_ptr<Field> src, int fil
 std::shared_ptr<Field> solve_greedy(const std::shared_ptr<Field> src) {
   struct Item {
     int color;
-    int r, c;
+    Point point;
     int score;
   };
 
   std::vector<Point> holes;
-  for (int r = 0; r < N; ++r) {
-    for (int c = 0; c < N; ++c) {
+  for (std::int8_t r = 0; r < N; ++r) {
+    for (std::int8_t c = 0; c < N; ++c) {
       if (src->is_hole(r, c)) {
         holes.push_back({r, c});
       }
@@ -469,10 +469,10 @@ std::shared_ptr<Field> solve_greedy(const std::shared_ptr<Field> src) {
     return l.score < r.score;
   };
   std::priority_queue<Item, std::vector<Item>, decltype(main_queue_compare)> main_queue{main_queue_compare};
-  for (int r = 0; r < N; ++r) {
-    for (int c = 0; c < N; ++c) {
+  for (std::int8_t r = 0; r < N; ++r) {
+    for (std::int8_t c = 0; c < N; ++c) {
       if (src->is_block(r, c)) {
-        Item item{src->get_block_color(r, c), r, c};
+        Item item{src->get_block_color(r, c), {r, c}};
         int dist = std::numeric_limits<int>::max();
         for (const auto& hole : holes) {
           dist = std::min(dist, manhattan_distance(c, r, hole.c, hole.r));
@@ -489,7 +489,7 @@ std::shared_ptr<Field> solve_greedy(const std::shared_ptr<Field> src) {
     Item item = main_queue.top();
     main_queue.pop();
 
-    best = bfs(best, {item.r, item.c});
+    best = bfs(best, item.point);
   }
   return best;
 }
