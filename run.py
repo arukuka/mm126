@@ -9,6 +9,7 @@ import re
 import pandas as pd
 import numpy as np
 import sys
+import scipy.stats
 
 
 def run(seed):
@@ -111,35 +112,46 @@ def main():
     vs_max_acc = 0
     vs_others_acc = 0
     win_acc = 0
+    test_win = 0
+    test_all = 0
     for seed in seeds_range:
         score, max_score = run(seed)
 
         vs_max_ratio = score / max_score
 
-        win = True
-        max_all = score
+        max_others = 1
         for other in others_columns:
             other_score = result.at[seed - 1, other]
-            win = win and other_score <= score
-            max_all = max(max_all, other_score)
-        vs_others = score / max_all
+            max_others = max(max_others, other_score)
+        vs_others = score / max_others
+        win = 2
+        test_all = test_all + 1
+        if score < max_others:
+            win = 0
+        elif score == max_others:
+            win = 1
+            test_all = test_all - 1
+        else:
+            win = 2
+            test_win = test_win + 1
+        win2str = ['x', '-', 'o']
 
         score_acc = score_acc + score
         max_score_acc = max_score_acc + max_score
         vs_max_acc = vs_max_acc + vs_max_ratio
         vs_others_acc = vs_others_acc + vs_others
-        if win:
-            win_acc = win_acc + 1
+        win_acc = win_acc + win / 2
 
         result.at[seed - 1, current_id] = score
         for col, val in zip(initial_columns[1:], [
                             max_score, vs_max_ratio, vs_others, win_acc / seed]):
             result.at[seed - 1, col] = val
 
+        p_val = scipy.stats.binom_test(test_win, test_all)
         print(
-            f'({seed:03}) {"o" if win else "x"} {win_acc / seed:.3f} {score:>9,}',
+            f'({seed:03}) {win2str[win]} {win_acc / seed:.3f} p={p_val:.3f} {score:>9,}',
             f'| {max_score:>9,}({vs_max_ratio:.3f}, {vs_max_acc / seed:.3f})',
-            f'| {max_all:>9,}({vs_others:.3f}, {vs_others_acc / seed:.3f})')
+            f'| {max_others:>9,}({vs_others:.3f}, {vs_others_acc / seed:.3f})')
 
     score_acc = score_acc / N
     max_score_acc = max_score_acc / N
