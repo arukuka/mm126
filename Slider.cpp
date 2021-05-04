@@ -27,10 +27,13 @@ void debug_print(const std::string file, const int line, const std::string func,
 #define DBG(x) debug_print(__FILE__, __LINE__, __func__, #x, x)
 
 struct Point {
-  std::int8_t r, c;
+  std::int16_t r, c;
 
   bool operator==(const Point& p) const {
     return r == p.r && c == p.c;
+  }
+  bool operator!=(const Point& p) const {
+    return this->operator==(p);
   }
 };
 
@@ -338,6 +341,65 @@ std::shared_ptr<Field> bfs(const std::shared_ptr<Field> src, const Point& target
   return next;
 }
 
+std::shared_ptr<Field> bfs(const std::shared_ptr<Field> src, const Point& from, const Point& to)
+{
+  struct Node {
+    Point point;
+    Command command;
+  };
+  std::queue<Node> queue;
+  Command memo[MAX_N][MAX_N];
+  std::memset(memo, -1, sizeof(memo));
+  queue.push({from, {-1, -1, '\0', '\0'}});
+  while(!queue.empty()) {
+    Node node = queue.front();
+    queue.pop();
+    if (memo[node.point.r][node.point.c].type != -1) {
+      continue;
+    }
+    memo[node.point.r][node.point.c] = node.command;
+    if (node.point == to) {
+      break;
+    }
+    for (int index = 0; index < OFS.size(); ++index) {
+      Point np = {static_cast<int8_t>(node.point.r + OFS[index][1]), static_cast<int8_t>(node.point.c + OFS[index][0])};
+      if (is_out(np)) {
+        continue;
+      }
+      if (src->is_block(np.r, np.c)) {
+        continue;
+      }
+      queue.push({np, {node.point, 'M', DIR_COMMANDS[index]}});
+      for (;;) {
+        np.r += OFS[index][1];
+        np.c += OFS[index][0];
+        if (is_out(np) || src->is_block(np.r, np.c)) {
+          np.r -= OFS[index][1];
+          np.c -= OFS[index][0];
+          break;
+        }
+        if (src->is_hole(np.r, np.c)) {
+          break;
+        }
+      }
+      queue.push({np, {node.point, 'S', DIR_COMMANDS[index]}});
+    }
+  }
+  if (memo[to.r][to.c].type == -1) {
+    return src;
+  }
+  std::vector<Command> command;
+  Point ite = to;
+  while (memo[ite.r][ite.c].type != '\0') {
+    const Command cmd = memo[ite.r][ite.c];
+    ite = cmd.point;
+    command.push_back(cmd);
+  }
+  std::shared_ptr<Field> next = Field::make_child(src, command);
+
+  return next;
+}
+
 
 std::shared_ptr<Field> pseudo_dijkstra(const std::shared_ptr<Field> src, int filter_color = 0)
 {
@@ -445,6 +507,336 @@ std::shared_ptr<Field> pseudo_dijkstra(const std::shared_ptr<Field> src, int fil
     command.push_back(cmd);
   }
   std::shared_ptr<Field> next = Field::make_child(src, command);
+
+  return next;
+}
+
+std::int8_t normalize(std::int8_t x)
+{
+  if (x == 0) {
+    return 0;
+  }
+  return x / std::abs(x);
+}
+
+std::pair<Point, int> search_receiver(const std::shared_ptr<Field> src, const Point& receiver, const Point& filter) {
+  if (src->is_block(receiver.r, receiver.c)) {
+    return {receiver, 0};
+  }
+
+  struct Info {
+    int count;
+    Point from;
+  };
+  struct Node {
+    Point point;
+    Info info;
+  };
+  std::queue<Node> queue;
+
+  for (const auto& d1 : OFS) {
+    Point ite = receiver;
+    ite.r += d1[1];
+    ite.c += d1[0];
+    if (is_out(ite.r, ite.c)) {
+      continue;
+    }
+    if (src->is_block(ite.r, ite.c)) {
+      queue.push({ite, Info{0, ite}});
+      continue;
+    }
+    for (;;) {
+      if (is_out(ite.r, ite.c)) {
+        break;
+      }
+      if (src->is_block(ite.r, ite.c)) {
+        queue.push({ite, Info{0, ite}});
+        break;
+      }
+      for (const auto& d2 : OFS) {
+        if (d2 == d1 || (d2[0] * -1 == d1[0] && d2[1] * -1 == d1[0])) {
+          continue;
+        }
+        Point ite2{ite};
+        ite2.r += d2[1];
+        ite2.c += d2[0];
+        if (is_out(ite2.r, ite2.c)) {
+          continue;
+        }
+        if (src->is_block(ite2.r, ite2.c)) {
+          queue.push({ite2, Info{0, ite2}});
+          continue;
+        }
+        for (;;) {
+          if (is_out(ite2.r, ite2.c)) {
+            break;
+          }
+          if (src->is_block(ite2.r, ite2.c)) {
+            queue.push({ite2, Info{0, ite2}});
+            break;
+          }
+          ite2.r += d2[1];
+          ite2.c += d2[0];
+        }
+      }
+      ite.r += d1[1];
+      ite.c += d1[0];
+    }
+  }
+
+  Info memo[MAX_N][MAX_N];
+  std::memset(memo, -1, sizeof(memo));
+  while(!queue.empty()) {
+    Node node = queue.front();
+    queue.pop();
+    if (src->is_hole(node.point.r, node.point.c)) {
+      continue;
+    }
+    if (node.point == filter) {
+      continue;
+    }
+    if (memo[node.point.r][node.point.c].count != -1) {
+      continue;
+    }
+    memo[node.point.r][node.point.c] = node.info;
+    if (node.point == receiver) {
+      break;
+    }
+    for (int index = 0; index < OFS.size(); ++index) {
+      Point np = {static_cast<int8_t>(node.point.r + OFS[index][1]), static_cast<int8_t>(node.point.c + OFS[index][0])};
+      if (is_out(np)) {
+        continue;
+      }
+      if (src->is_block(np.r, np.c)) {
+        continue;
+      }
+      queue.push({np, Info{node.info.count + 1, node.info.from}});
+      for (;;) {
+        np.r += OFS[index][1];
+        np.c += OFS[index][0];
+        if (is_out(np) || src->is_block(np.r, np.c)) {
+          np.r -= OFS[index][1];
+          np.c -= OFS[index][0];
+          break;
+        }
+        if (src->is_hole(np.r, np.c)) {
+          break;
+        }
+      }
+      queue.push({np, Info{node.info.count + 1, node.info.from}});
+    }
+  }
+  Info info = memo[receiver.r][receiver.c];
+  return {info.from, info.count};
+}
+
+std::shared_ptr<Field> solve_greedy_ver2(const std::shared_ptr<Field> src) {
+  std::vector<Point> holes;
+  for (std::int8_t r = 0; r < N; ++r) {
+    for (std::int8_t c = 0; c < N; ++c) {
+      if (src->is_hole(r, c)) {
+        holes.push_back({r, c});
+      }
+    }
+  }
+
+  struct LightItem {
+    int color;
+    Point point;
+    int score;
+  };
+  std::vector<LightItem> raw_targets;
+  for (std::int8_t r = 0; r < N; ++r) {
+    for (std::int8_t c = 0; c < N; ++c) {
+      if (src->is_block(r, c)) {
+        int dist = std::numeric_limits<int>::max();
+        for (const auto& hole : holes) {
+          dist = std::min(dist, manhattan_distance(c, r, hole.c, hole.r));
+        }
+        int color = src->get_block_color(r, c);
+        constexpr int MUL = MAX_N * 2;
+        raw_targets.emplace_back(LightItem{color, {r, c}, color * MUL + MUL - 1 - dist});
+      }
+    }
+  }
+  if (raw_targets.size() == 0) {
+    return src;
+  }
+  std::sort(raw_targets.begin(), raw_targets.end(), [](const LightItem& l, const LightItem& r) {
+    return l.score > r.score;
+  });
+
+  struct Item {
+    int color;
+    Point point;
+    int score;
+    Point hole;
+    Point first_dir;
+    Point second_dir;
+    Point stop_point;
+    Point receiver_target;
+  };
+
+  std::vector<Item> targets;
+  int max = raw_targets[0].color;
+  for (const auto& target : raw_targets) {
+    if (target.color < max) {
+      break;
+    }
+    for (const auto& hole : holes) {
+      std::int8_t dr = target.point.r - hole.r;
+      std::int8_t dc = target.point.c - hole.c;
+      const std::array<Point, 2> moves{{
+        {0, dc},
+        {dr, 0}
+      }};
+      for (int i = 0; i < 2; ++i) {
+        const auto first_move = moves[i];
+        if (first_move.r == 0 && first_move.c == 0) {
+          continue;
+        }
+        const auto second_move = moves[1 - i];
+        const Point stop_point{
+          static_cast<std::int8_t>(hole.r + first_move.r),
+          static_cast<std::int8_t>(hole.c + first_move.c)
+        };
+        Point first_normalized_diff{normalize(first_move.r), normalize(first_move.c)};
+        Point second_normalized_diff{normalize(second_move.r), normalize(second_move.c)};
+        const Point receiver{
+          static_cast<std::int8_t>(stop_point.r - second_normalized_diff.r),
+          static_cast<std::int8_t>(stop_point.c - second_normalized_diff.c)
+        };
+        std::pair<Point, int> target_receiver{{-1, -1}, -1};
+        if (receiver != stop_point) {
+          target_receiver = search_receiver(src, receiver, target.point);
+        }
+        Point ite{hole.r, hole.c};
+        int Z = src->Z;
+        int score = 0;
+        int Z2 = Z;
+        int score2 = 0;
+        bool done = false;
+        while (ite != stop_point) {
+          if (!done && ite == target_receiver.first) {
+            Z -= target_receiver.second;
+            done = true;
+          } else {
+            if (src->is_block(ite.r, ite.c)) {
+              score += (src->get_block_color(ite.r, ite.c) - 1) * Z;
+              --Z;
+            }
+          }
+          if (src->is_block(ite.r, ite.c)) {
+            score2 += (src->get_block_color(ite.r, ite.c) - 1) * Z2;
+            --Z2;
+          }
+          ite.r += first_normalized_diff.r;
+          ite.c += first_normalized_diff.c;
+        }
+        if (!done && ite == target_receiver.first) {
+          Z -= target_receiver.second;
+          done = true;
+        }
+        ite.r += second_normalized_diff.r;
+        ite.c += second_normalized_diff.c;
+        while (ite != target.point) {
+          int md = manhattan_distance(
+            stop_point.c, stop_point.r,
+            ite.c, ite.r
+          );
+          if (!done && ite == target_receiver.first) {
+            Z -= target_receiver.second;
+            done = true;
+          } else {
+            if (src->is_block(ite.r, ite.c)) {
+              int turns;
+              if (done) {
+                turns = 2;
+              } else {
+                turns = md + 1;
+              }
+              score += (src->get_block_color(ite.r, ite.c) - 1) * (Z - (turns - 1));
+              Z -= turns;
+            }
+          }
+          if (src->is_block(ite.r, ite.c)) {
+            score2 += (src->get_block_color(ite.r, ite.c) - 1) * (Z2 - md);
+            Z2 -= md + 1;
+          }
+          ite.r += second_normalized_diff.r;
+          ite.c += second_normalized_diff.c;
+        }
+        int md = manhattan_distance(
+          stop_point.c, stop_point.r,
+          ite.c, ite.r
+        );
+        score += (target.color - 1) * (Z - 1);
+        score2 += (target.color - 1) * (Z2 - md);
+
+        int max_score = std::max(score, score2);
+        if (score < score2) {
+          max_score = score;
+          target_receiver.first.r = - 1;
+        }
+
+        targets.emplace_back(Item{
+          target.color,
+          target.point,
+          max_score,
+          hole,
+          first_normalized_diff,
+          second_normalized_diff,
+          stop_point,
+          target_receiver.first
+        });
+      }
+    }
+  }
+
+  if (targets.size() == 0) {
+    return src;
+  }
+
+  std::sort(targets.begin(), targets.end(), [](const Item& l, const Item& r) {
+    return l.score > r.score;
+  });
+  std::shared_ptr<Field> next = src;
+  const auto target = targets[0];
+
+  const Point stop_point{target.stop_point};
+  Point first_normalized_diff{target.first_dir};
+  Point second_normalized_diff{target.second_dir};
+  const Point receiver{
+    static_cast<std::int8_t>(stop_point.r - second_normalized_diff.r),
+    static_cast<std::int8_t>(stop_point.c - second_normalized_diff.c)
+  };
+  Point ite{target.hole.r, target.hole.c};
+  while (ite != stop_point) {
+    if (ite == target.receiver_target) {
+      next = bfs(next, ite, receiver);
+    } else if (src->is_block(ite.r, ite.c)) {
+      next = bfs(next, ite);
+    }
+    ite.r += first_normalized_diff.r;
+    ite.c += first_normalized_diff.c;
+  }
+  if (ite == target.receiver_target) {
+    next = bfs(next, ite, receiver);
+  } else if (src->is_block(ite.r, ite.c)) {
+    next = bfs(next, ite);
+  }
+  ite.r += second_normalized_diff.r;
+  ite.c += second_normalized_diff.c;
+  while (ite != target.point) {
+    if (ite == target.receiver_target) {
+      next = bfs(next, ite, receiver);
+    } else if (src->is_block(ite.r, ite.c)) {
+      next = bfs(next, ite);
+    }
+    ite.r += second_normalized_diff.r;
+    ite.c += second_normalized_diff.c;
+  }
+  next = bfs(next, target.point);
 
   return next;
 }
@@ -606,21 +998,20 @@ std::shared_ptr<Field> neighbor_insert(const std::shared_ptr<Field> src)
 }
 
 std::vector<Command> solve() {
-  std::shared_ptr<Field> best = solve_greedy(field);
+  std::shared_ptr<Field> best = solve_greedy_ver2(field);
 
-  int iteration;
-  for (int iteration = 0;; ++iteration) {
-    if (timer.TLE()) {
-      DBG(iteration);
-      break;
-    }
+  // for (int iteration = 0;; ++iteration) {
+  //   if (timer.TLE()) {
+  //     DBG(iteration);
+  //     break;
+  //   }
 
-    std::shared_ptr<Field> next = neighbor_insert(best);
+  //   std::shared_ptr<Field> next = neighbor_insert(best);
 
-    if (next->score > best->score) {
-      best = next;
-    }
-  }
+  //   if (next->score > best->score) {
+  //     best = next;
+  //   }
+  // }
 
   std::cerr << "Score: " << best->score << std::endl;
   std::vector<Command> ans;
