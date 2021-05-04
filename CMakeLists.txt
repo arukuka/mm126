@@ -7,4 +7,5 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 project(Slider)
 
+add_compile_definitions(LOCAL)
 add_executable(Slider Slider.cpp)
