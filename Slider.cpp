@@ -33,7 +33,7 @@ struct Point {
     return r == p.r && c == p.c;
   }
   bool operator!=(const Point& p) const {
-    return this->operator==(p);
+    return !this->operator==(p);
   }
 };
 
@@ -50,10 +50,12 @@ constexpr char DIR_COMMANDS[5] = "RDLU";
 
 struct Timer {
   std::chrono::high_resolution_clock::time_point start;
+  double secs = 0;
   Timer() : start(std::chrono::high_resolution_clock::now()) {}
-  bool TLE() const {
+  bool TLE() {
     const auto now = std::chrono::high_resolution_clock::now();
     const auto secs = std::chrono::duration_cast<std::chrono::milliseconds>(now - start).count() / 1e3;
+    this->secs = secs;
     return ::TLE < secs;
   }
 };
@@ -88,7 +90,7 @@ struct _Field;
 template<>
 struct _Field<0> {
   using this_type = _Field<0>;
-  using cell_type = std::int8_t;
+  using cell_type = std::int16_t;
   static constexpr cell_type HOLE = -1;
 
   int Z;
@@ -158,6 +160,16 @@ public:
     next->prev_target_color = color;
     return next;
   }
+  static std::shared_ptr<this_type> make_child(std::shared_ptr<this_type> parent, std::vector<Command>& command, const Point& next_point) {
+    const auto point = command.back().point;
+    const auto color = parent->at(point.r, point.c);
+    auto next = this_type::make_child(parent, command);
+    if (next_point.r != -1) {
+      next->set(next_point.r, next_point.c, color);
+    }
+    return next;
+  }
+
 };
 
 template<int GRID_SIZE>
@@ -343,6 +355,9 @@ std::shared_ptr<Field> bfs(const std::shared_ptr<Field> src, const Point& target
 
 std::shared_ptr<Field> bfs(const std::shared_ptr<Field> src, const Point& from, const Point& to)
 {
+  if (from == to) {
+    return src;
+  }
   struct Node {
     Point point;
     Command command;
@@ -358,6 +373,9 @@ std::shared_ptr<Field> bfs(const std::shared_ptr<Field> src, const Point& from, 
       continue;
     }
     memo[node.point.r][node.point.c] = node.command;
+    if (src->is_hole(node.point.r, node.point.c)) {
+      continue;
+    }
     if (node.point == to) {
       break;
     }
@@ -395,7 +413,7 @@ std::shared_ptr<Field> bfs(const std::shared_ptr<Field> src, const Point& from, 
     ite = cmd.point;
     command.push_back(cmd);
   }
-  std::shared_ptr<Field> next = Field::make_child(src, command);
+  std::shared_ptr<Field> next = Field::make_child(src, command, to);
 
   return next;
 }
@@ -517,6 +535,13 @@ std::int8_t normalize(std::int8_t x)
     return 0;
   }
   return x / std::abs(x);
+}
+
+bool in_range(const Point& from, const Point& to, const Point& point) {
+  Point min{std::min(from.r, to.r), std::min(from.c, to.c)};
+  Point max{std::max(from.r, to.r), std::max(from.c, to.c)};
+  return min.r <= point.r && point.r <= max.r
+         && min.c <= point.c && point.c <= max.c;
 }
 
 std::pair<Point, int> search_receiver(const std::shared_ptr<Field> src, const Point& receiver, const Point& filter) {
@@ -671,6 +696,7 @@ std::shared_ptr<Field> solve_greedy_ver2(const std::shared_ptr<Field> src) {
     Point point;
     int score;
     Point hole;
+    int Z;
     Point first_dir;
     Point second_dir;
     Point stop_point;
@@ -679,6 +705,10 @@ std::shared_ptr<Field> solve_greedy_ver2(const std::shared_ptr<Field> src) {
 
   std::vector<Item> targets;
   int max = raw_targets[0].color;
+  int next_color = 1;
+  if (raw_targets.size() > 1) {
+    next_color = raw_targets[1].color;
+  }
   for (const auto& target : raw_targets) {
     if (target.color < max) {
       break;
@@ -707,7 +737,7 @@ std::shared_ptr<Field> solve_greedy_ver2(const std::shared_ptr<Field> src) {
           static_cast<std::int8_t>(stop_point.c - second_normalized_diff.c)
         };
         std::pair<Point, int> target_receiver{{-1, -1}, -1};
-        if (receiver != stop_point) {
+        if (receiver != stop_point && !is_out(receiver.r, receiver.c)) {
           target_receiver = search_receiver(src, receiver, target.point);
         }
         Point ite{hole.r, hole.c};
@@ -734,6 +764,10 @@ std::shared_ptr<Field> solve_greedy_ver2(const std::shared_ptr<Field> src) {
           ite.c += first_normalized_diff.c;
         }
         if (!done && ite == target_receiver.first) {
+          Z -= target_receiver.second;
+          done = true;
+        }
+        if (!done && target_receiver.first.r != -1 && !in_range(stop_point, target.point, target_receiver.first)) {
           Z -= target_receiver.second;
           done = true;
         }
@@ -771,11 +805,17 @@ std::shared_ptr<Field> solve_greedy_ver2(const std::shared_ptr<Field> src) {
           ite.c, ite.r
         );
         score += (target.color - 1) * (Z - 1);
+        Z -= 2;
+        // score += (next_color - 1) * Z;
         score2 += (target.color - 1) * (Z2 - md);
+        Z2 -= md + 1;
+        // score2 += (next_color - 1) * Z;
 
-        int max_score = std::max(score, score2);
-        if (score < score2) {
-          max_score = score;
+        int max_score = score;
+        int max_Z = Z;
+        if (Z2 > Z || (Z2 == Z && score2 > score)) {
+          max_score = score2;
+          max_Z = Z2;
           target_receiver.first.r = - 1;
         }
 
@@ -784,6 +824,7 @@ std::shared_ptr<Field> solve_greedy_ver2(const std::shared_ptr<Field> src) {
           target.point,
           max_score,
           hole,
+          max_Z,
           first_normalized_diff,
           second_normalized_diff,
           stop_point,
@@ -798,6 +839,9 @@ std::shared_ptr<Field> solve_greedy_ver2(const std::shared_ptr<Field> src) {
   }
 
   std::sort(targets.begin(), targets.end(), [](const Item& l, const Item& r) {
+    if (l.Z != r.Z) {
+      return l.Z > r.Z;
+    }
     return l.score > r.score;
   });
   std::shared_ptr<Field> next = src;
@@ -811,9 +855,11 @@ std::shared_ptr<Field> solve_greedy_ver2(const std::shared_ptr<Field> src) {
     static_cast<std::int8_t>(stop_point.c - second_normalized_diff.c)
   };
   Point ite{target.hole.r, target.hole.c};
+  bool done = false;
   while (ite != stop_point) {
     if (ite == target.receiver_target) {
       next = bfs(next, ite, receiver);
+      done = true;
     } else if (src->is_block(ite.r, ite.c)) {
       next = bfs(next, ite);
     }
@@ -822,7 +868,12 @@ std::shared_ptr<Field> solve_greedy_ver2(const std::shared_ptr<Field> src) {
   }
   if (ite == target.receiver_target) {
     next = bfs(next, ite, receiver);
-  } else if (src->is_block(ite.r, ite.c)) {
+    done = true;
+  }
+  if (!done && target.receiver_target.r != -1 && !in_range(stop_point, target.point, target.receiver_target)) {
+    next = bfs(next, target.receiver_target, receiver);
+  }
+  if (target.receiver_target != ite && src->is_block(ite.r, ite.c)) {
     next = bfs(next, ite);
   }
   ite.r += second_normalized_diff.r;
@@ -836,8 +887,9 @@ std::shared_ptr<Field> solve_greedy_ver2(const std::shared_ptr<Field> src) {
     ite.r += second_normalized_diff.r;
     ite.c += second_normalized_diff.c;
   }
-  next = bfs(next, target.point);
-
+  if (second_normalized_diff != Point{0, 0}) {
+    next = bfs(next, target.point);
+  }
   return next;
 }
 
@@ -998,7 +1050,13 @@ std::shared_ptr<Field> neighbor_insert(const std::shared_ptr<Field> src)
 }
 
 std::vector<Command> solve() {
-  std::shared_ptr<Field> best = solve_greedy_ver2(field);
+  std::shared_ptr<Field> best = field;
+  for (;;) {
+    if (best->Z <= 0 || timer.TLE()) {
+      break;
+    }
+    best = solve_greedy_ver2(best);
+  }
 
   // for (int iteration = 0;; ++iteration) {
   //   if (timer.TLE()) {
@@ -1012,6 +1070,8 @@ std::vector<Command> solve() {
   //     best = next;
   //   }
   // }
+  DBG(timer.TLE());
+  DBG(timer.secs);
 
   std::cerr << "Score: " << best->score << std::endl;
   std::vector<Command> ans;
