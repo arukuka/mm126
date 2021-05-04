@@ -163,9 +163,16 @@ public:
   static std::shared_ptr<this_type> make_child(std::shared_ptr<this_type> parent, std::vector<Command>& command, const Point& next_point) {
     const auto point = command.back().point;
     const auto color = parent->at(point.r, point.c);
-    auto next = this_type::make_child(parent, command);
+    std::shared_ptr<this_type> next = std::make_shared<this_type>(parent);
+    next->parent = parent;
+    next->at(point.r, point.c) = 0;
+    next->prev_command = command;
+    next->Z -= next->prev_command.size();
+    next->prev_target_color = color;
     if (next_point.r != -1) {
       next->set(next_point.r, next_point.c, color);
+    } else {
+      next->score += std::max(0, (next->Z + 1) * (color - 1));
     }
     return next;
   }
@@ -579,7 +586,7 @@ std::pair<Point, int> search_receiver(const std::shared_ptr<Field> src, const Po
         break;
       }
       for (const auto& d2 : OFS) {
-        if (d2 == d1 || (d2[0] * -1 == d1[0] && d2[1] * -1 == d1[0])) {
+        if (d2 == d1 || (d2[0] * -1 == d1[0] && d2[1] * -1 == d1[1])) {
           continue;
         }
         Point ite2{ite};
@@ -737,7 +744,9 @@ std::shared_ptr<Field> solve_greedy_ver2(const std::shared_ptr<Field> src) {
           static_cast<std::int8_t>(stop_point.c - second_normalized_diff.c)
         };
         std::pair<Point, int> target_receiver{{-1, -1}, -1};
-        if (receiver != stop_point && !is_out(receiver.r, receiver.c)) {
+        if (receiver != stop_point
+            && !is_out(receiver.r, receiver.c)
+            && !src->is_hole(receiver.r, receiver.c)) {
           target_receiver = search_receiver(src, receiver, target.point);
         }
         Point ite{hole.r, hole.c};
@@ -1055,7 +1064,11 @@ std::vector<Command> solve() {
     if (best->Z <= 0 || timer.TLE()) {
       break;
     }
-    best = solve_greedy_ver2(best);
+    auto next = solve_greedy_ver2(best);
+    if (best == next) {
+      break;
+    }
+    best = next;
   }
 
   // for (int iteration = 0;; ++iteration) {
