@@ -581,7 +581,7 @@ std::pair<Point, int> search_receiver(const std::shared_ptr<Field> src, const Po
       continue;
     }
     if (src->is_block(ite.r, ite.c)) {
-      targets.emplace_back(ite, Info{0, ite});
+      targets.emplace_back(Node{ite, Info{0, ite}});
       continue;
     }
     for (;;) {
@@ -589,7 +589,7 @@ std::pair<Point, int> search_receiver(const std::shared_ptr<Field> src, const Po
         break;
       }
       if (src->is_block(ite.r, ite.c)) {
-        targets.emplace_back(ite, Info{0, ite});
+        targets.emplace_back(Node{ite, Info{0, ite}});
         break;
       }
       for (const auto& d2 : OFS) {
@@ -603,7 +603,7 @@ std::pair<Point, int> search_receiver(const std::shared_ptr<Field> src, const Po
           continue;
         }
         if (src->is_block(ite2.r, ite2.c)) {
-          targets.emplace_back(ite2, Info{0, ite2});
+          targets.emplace_back(Node{ite2, Info{0, ite2}});
           continue;
         }
         for (;;) {
@@ -611,7 +611,7 @@ std::pair<Point, int> search_receiver(const std::shared_ptr<Field> src, const Po
             break;
           }
           if (src->is_block(ite2.r, ite2.c)) {
-            targets.emplace_back(ite2, Info{0, ite2});
+            targets.emplace_back(Node{ite2, Info{0, ite2}});
             break;
           }
           ite2.r += d2[1];
@@ -690,13 +690,12 @@ struct Directions {
     std::pair<Point, int> target_receiver;
   };
   std::vector<Info> infos;
-  std::set<Point> memo;
 
-  bool operator<(Directions& d) const {
+  bool operator<(const Directions& d) const {
     if (Z != d.Z) {
       return Z < d.Z;
     }
-    return score > d.score;
+    return score < d.score;
   }
 };
 
@@ -801,7 +800,7 @@ void calculate_score(
           dirs.Z -= 1;
         } else {
           dirs.Z -= manhattan_distance(
-            ite_info->stop_point.c, ite_info->stop_point.r,
+            now.c, now.r,
             ite.c, ite.r
           );
         }
@@ -886,7 +885,7 @@ Directions search_directions(const std::shared_ptr<Field> src, const Point now, 
   }
   const std::int8_t dr = goal.r - now.r;
   const std::int8_t dc = goal.c - now.c;
-  Directions ans{std::numeric_limits<int>::max(), 0};
+  Directions ans{std::numeric_limits<int>::min(), 0};
   if (length == 1) {
     if (dr == 0 || dc == 0) {
       Point move{dr, dc};
@@ -899,16 +898,16 @@ Directions search_directions(const std::shared_ptr<Field> src, const Point now, 
         auto res = search_directions(
             src, next.infos.back().stop_point,
             goal, next, length - 1, dir);
-        if (res < ans) {
+        if (ans < res) {
           ans = res;
         }
       }
     } else {
-      return {std::numeric_limits<int>::max()};
+      return {std::numeric_limits<int>::min()};
     }
   } else if (length == 2) {
     if (dr == 0 || dc == 0) {
-      return {std::numeric_limits<int>::max()};
+      return {std::numeric_limits<int>::min()};
     }
     const std::array<Point, 2> moves{{
       {0, dc},
@@ -925,7 +924,7 @@ Directions search_directions(const std::shared_ptr<Field> src, const Point now, 
         auto res = search_directions(
             src, next.infos.back().stop_point,
             goal, next, length - 1, dir);
-        if (res < ans) {
+        if (ans < res) {
           ans = res;
         }
       }
@@ -946,7 +945,7 @@ Directions search_directions(const std::shared_ptr<Field> src, const Point now, 
           auto res = search_directions(
               src, next.infos.back().stop_point,
               goal, next, length - 1, dir);
-          if (res < ans) {
+          if (ans < res) {
             ans = res;
           }
 
@@ -956,6 +955,7 @@ Directions search_directions(const std::shared_ptr<Field> src, const Point now, 
       }
     }
   }
+
   return ans;
 }
 
@@ -995,19 +995,7 @@ std::shared_ptr<Field> solve_greedy_ver2(const std::shared_ptr<Field> src) {
     return l.score > r.score;
   });
 
-  struct Item {
-    int color;
-    Point point;
-    int score;
-    Point hole;
-    int Z;
-    Point first_dir;
-    Point second_dir;
-    Point stop_point;
-    Point receiver_target;
-  };
-
-  std::vector<Item> targets;
+  Directions best_dirs{std::numeric_limits<int>::min()};
   int max = raw_targets[0].color;
   if (max == 1) {
     return src;
@@ -1021,184 +1009,24 @@ std::shared_ptr<Field> solve_greedy_ver2(const std::shared_ptr<Field> src) {
       break;
     }
     for (const auto& hole : holes) {
-      std::int8_t dr = target.point.r - hole.r;
-      std::int8_t dc = target.point.c - hole.c;
-      const std::array<Point, 2> moves{{
-        {0, dc},
-        {dr, 0}
-      }};
-      for (int i = 0; i < 2; ++i) {
-        const auto first_move = moves[i];
-        if (first_move.r == 0 && first_move.c == 0) {
-          continue;
+      const Directions atom{src->Z, 0, hole};
+      constexpr Point prev_dir{0, 0};
+      for (int len = 1; len <= 2; ++len) {
+        const auto trial = search_directions(src, hole, target.point, atom, len, prev_dir);
+        if (best_dirs < trial) {
+          best_dirs = trial;
         }
-        const auto second_move = moves[1 - i];
-        const Point stop_point{
-          static_cast<std::int8_t>(hole.r + first_move.r),
-          static_cast<std::int8_t>(hole.c + first_move.c)
-        };
-        Point first_normalized_diff{normalize(first_move.r), normalize(first_move.c)};
-        Point second_normalized_diff{normalize(second_move.r), normalize(second_move.c)};
-        const Point receiver{
-          static_cast<std::int8_t>(stop_point.r - second_normalized_diff.r),
-          static_cast<std::int8_t>(stop_point.c - second_normalized_diff.c)
-        };
-        std::pair<Point, int> target_receiver{{-1, -1}, -1};
-        if (receiver != stop_point
-            && !is_out(receiver.r, receiver.c)
-            && !src->is_hole(receiver.r, receiver.c)) {
-          target_receiver = search_receiver(src, receiver, target.point);
-        }
-        Point ite{hole.r, hole.c};
-        int Z = src->Z;
-        int score = 0;
-        int Z2 = Z;
-        int score2 = 0;
-        bool done = false;
-        while (ite != stop_point) {
-          if (!done && ite == target_receiver.first) {
-            Z -= target_receiver.second;
-            done = true;
-          } else {
-            if (src->is_block(ite.r, ite.c)) {
-              score += (src->get_block_color(ite.r, ite.c) - 1) * Z;
-              --Z;
-            }
-          }
-          if (src->is_block(ite.r, ite.c)) {
-            score2 += (src->get_block_color(ite.r, ite.c) - 1) * Z2;
-            --Z2;
-          }
-          ite.r += first_normalized_diff.r;
-          ite.c += first_normalized_diff.c;
-        }
-        if (!done && ite == target_receiver.first) {
-          Z -= target_receiver.second;
-          done = true;
-        }
-        if (!done && target_receiver.first.r != -1 && !in_range(stop_point, target.point, target_receiver.first)) {
-          Z -= target_receiver.second;
-          done = true;
-        }
-        ite.r += second_normalized_diff.r;
-        ite.c += second_normalized_diff.c;
-        while (ite != target.point) {
-          int md = manhattan_distance(
-            stop_point.c, stop_point.r,
-            ite.c, ite.r
-          );
-          if (!done && ite == target_receiver.first) {
-            Z -= target_receiver.second;
-            done = true;
-          } else {
-            if (src->is_block(ite.r, ite.c)) {
-              int turns;
-              if (done) {
-                turns = 2;
-              } else {
-                turns = md + 1;
-              }
-              score += (src->get_block_color(ite.r, ite.c) - 1) * (Z - (turns - 1));
-              Z -= turns;
-            }
-          }
-          if (src->is_block(ite.r, ite.c)) {
-            score2 += (src->get_block_color(ite.r, ite.c) - 1) * (Z2 - md);
-            Z2 -= md + 1;
-          }
-          ite.r += second_normalized_diff.r;
-          ite.c += second_normalized_diff.c;
-        }
-        int md = manhattan_distance(
-          stop_point.c, stop_point.r,
-          ite.c, ite.r
-        );
-        score += (target.color - 1) * (Z - 1);
-        Z -= 2;
-        // score += (next_color - 1) * Z;
-        score2 += (target.color - 1) * (Z2 - md);
-        Z2 -= md + 1;
-        // score2 += (next_color - 1) * Z;
-
-        int max_score = score;
-        int max_Z = Z;
-        if (Z2 > Z || (Z2 == Z && score2 > score)) {
-          max_score = score2;
-          max_Z = Z2;
-          target_receiver.first.r = - 1;
-        }
-
-        targets.emplace_back(Item{
-          target.color,
-          target.point,
-          max_score,
-          hole,
-          max_Z,
-          first_normalized_diff,
-          second_normalized_diff,
-          stop_point,
-          target_receiver.first
-        });
       }
     }
   }
 
-  if (targets.size() == 0) {
+  if (best_dirs.Z == std::numeric_limits<int>::min()) {
     return src;
   }
 
-  std::sort(targets.begin(), targets.end(), [](const Item& l, const Item& r) {
-    if (l.Z != r.Z) {
-      return l.Z > r.Z;
-    }
-    return l.score > r.score;
-  });
-  std::shared_ptr<Field> next = src;
-  const auto target = targets[0];
+  auto next = apply_directions(src, best_dirs);
+  assert(best_dirs.Z <= next->Z);
 
-  const Point stop_point{target.stop_point};
-  Point first_normalized_diff{target.first_dir};
-  Point second_normalized_diff{target.second_dir};
-  const Point receiver{
-    static_cast<std::int8_t>(stop_point.r - second_normalized_diff.r),
-    static_cast<std::int8_t>(stop_point.c - second_normalized_diff.c)
-  };
-  Point ite{target.hole.r, target.hole.c};
-  bool done = false;
-  while (ite != stop_point) {
-    if (ite == target.receiver_target) {
-      next = bfs(next, ite, receiver);
-      done = true;
-    } else if (src->is_block(ite.r, ite.c)) {
-      next = bfs(next, ite);
-    }
-    ite.r += first_normalized_diff.r;
-    ite.c += first_normalized_diff.c;
-  }
-  if (ite == target.receiver_target) {
-    next = bfs(next, ite, receiver);
-    done = true;
-  }
-  if (!done && target.receiver_target.r != -1 && !in_range(stop_point, target.point, target.receiver_target)) {
-    next = bfs(next, target.receiver_target, receiver);
-  }
-  if (target.receiver_target != ite && src->is_block(ite.r, ite.c)) {
-    next = bfs(next, ite);
-  }
-  ite.r += second_normalized_diff.r;
-  ite.c += second_normalized_diff.c;
-  while (ite != target.point) {
-    if (ite == target.receiver_target) {
-      next = bfs(next, ite, receiver);
-    } else if (src->is_block(ite.r, ite.c)) {
-      next = bfs(next, ite);
-    }
-    ite.r += second_normalized_diff.r;
-    ite.c += second_normalized_diff.c;
-  }
-  if (second_normalized_diff != Point{0, 0}) {
-    next = bfs(next, target.point);
-  }
   return next;
 }
 
