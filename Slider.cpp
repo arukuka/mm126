@@ -19,7 +19,7 @@
 #include <unordered_map>
 #include <cassert>
 
-#define TEST
+// #define TEST
 #ifdef TEST
 #include <thread>
 #endif
@@ -57,7 +57,7 @@ private:
 };
 
 struct Point {
-  std::int16_t r, c;
+  std::int8_t r, c;
 
   bool operator==(const Point& p) const {
     return r == p.r && c == p.c;
@@ -152,7 +152,7 @@ struct _Field;
 template<>
 struct _Field<0> {
   using this_type = _Field<0>;
-  using cell_type = std::int16_t;
+  using cell_type = std::int8_t;
   static constexpr cell_type HOLE = -1;
 
   int Z;
@@ -1393,6 +1393,7 @@ std::vector<Command> solve() {
   DBG(timer.secs);
   DBG(fast_timer.TLE());
   DBG(fast_timer.secs);
+  DBG(N);
 
   std::cerr << "Score: " << best->score << std::endl;
   std::vector<Command> ans;
