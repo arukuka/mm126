@@ -1253,26 +1253,62 @@ std::vector<Command> solve() {
     best = next;
   }
 
+  using field_type = std::shared_ptr<Field>;
+  auto field_compare = [](const field_type l, const field_type r) {
+    return l->score < r->score;
+  };
+  using queue_type = std::priority_queue<field_type, std::vector<field_type>, decltype(field_compare)>;
+  std::vector<queue_type> targets;
+  for (int i = 0; i <= field->Z; ++i) {
+    targets.emplace_back(queue_type{field_compare});
+  }
+  targets[field->Z].push(field);
+
   for (int iteration = 0;; ++iteration) {
     if (timer.TLE()) {
       DBG(iteration);
       break;
     }
 
-    std::shared_ptr<Field> next = field;
-    for (;;) {
-      if (next->Z <= 0 || timer.TLE()) {
+    for (int i = field->Z; i > 0; --i) {
+      if (timer.TLE()) {
         break;
       }
-      auto next2 = solve_greedy_ver2(next);
-      if (next == next2) {
-        break;
-      }
-      next = next2;
-    }
 
-    if (next->score > best->score) {
-      best = next;
+      auto& queue = targets[i];
+      if (!queue.size()) {
+        continue;
+      }
+      auto node = queue.top();
+      queue.pop();
+
+      if (node->score > best->score) {
+        best = node;
+      }
+
+      field_type next_1 = solve_greedy_ver2(node);
+      if (node == next_1) {
+        continue;
+      }
+      targets[std::max(0, next_1->Z)].push(next_1);
+
+
+      int color = next_1->prev_target_color;
+      field_type next_2 = pseudo_dijkstra(node, color - 1);
+      if (node != next_2) {
+        targets[std::max(0, next_2->Z)].push(next_2);
+      }
+    }
+    {
+      auto& queue = targets[0];
+      if (queue.size()) {
+        auto last = queue.top();
+        queue.pop();
+        if (last->score > best->score) {
+          best = last;
+        }
+      }
+      targets[field->Z].push(field);
     }
   }
   DBG(timer.TLE());
