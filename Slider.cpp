@@ -823,6 +823,61 @@ void calculate_score(
   }
 }
 
+std::shared_ptr<Field> apply_directions(
+    const std::shared_ptr<Field> src,
+    Directions& dirs)
+{
+  std::map<Point, std::pair<int, int>> dic;
+  std::vector<bool> dones(dirs.infos.size());
+
+  for (std::size_t i = 0; i < dirs.infos.size(); ++i) {
+    const auto& info = dirs.infos[i];
+    if (info.target_receiver.first.r == ALREADY_DONE) {
+      dones[i] = true;
+    } else if (info.target_receiver.first.r != NOT_USED) {
+      dic[info.target_receiver.first] = {i, info.target_receiver.second};
+    }
+  }
+
+  std::shared_ptr<Field> next = src;
+  Point now = dirs.start;
+  std::size_t depth = 0;
+  for (auto ite_info = dirs.infos.cbegin(); ite_info != dirs.infos.cend(); ++ite_info) {
+    const Point receiver{
+      static_cast<std::int8_t>(now.r - ite_info->dir.r),
+      static_cast<std::int8_t>(now.c - ite_info->dir.c)
+    };
+    if (!dones[depth]
+        && ite_info->target_receiver.first.r != NOT_USED
+        && !in_range(ite_info->stop_point, now, ite_info->target_receiver.first)) {
+      next = bfs(next, ite_info->target_receiver.first, receiver);
+      dones[depth] = true;
+    }
+    Point ite{now.r, now.c};
+    auto run = [&](){
+      if (dic.count(ite) && !dones[dic[ite].first]) {
+        next = bfs(next, ite, receiver);
+        dones[dic[ite].first] = true;
+      } else if (src->is_block(ite.r, ite.c)) {
+        next = bfs(next, ite);
+      }
+    };
+    while (ite != ite_info->stop_point) {
+      run();
+      ite.r += ite_info->dir.r;
+      ite.c += ite_info->dir.c;
+    }
+    assert(ite == ite_info->stop_point);
+    if (depth + 1 >= dirs.infos.size()) {
+      run();
+    }
+    now = ite_info->stop_point;
+    ++depth;
+  }
+
+  return next;
+}
+
 Directions search_directions(const std::shared_ptr<Field> src, const Point now, const Point goal, const Directions directions, const int length, const Point& prev_dir) {
   if (length <= 0) {
     Directions ans{directions};
