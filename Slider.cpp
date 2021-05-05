@@ -1387,7 +1387,7 @@ std::vector<Command> solve() {
           best = last;
         }
       }
-      targets[field->Z].push(field);
+      // targets[field->Z].push(field);
     }
   }
   DBG(timer.TLE());
