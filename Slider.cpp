@@ -806,7 +806,7 @@ void calculate_score(
           dirs.Z -= dist;
         }
         dirs.Z -= cal_move_times(dirs, ite_info);
-        dirs.score += (src->get_block_color(ite.r, ite.c) - 1) * (dirs.Z + 1);
+        dirs.score += (src->get_block_color(ite.r, ite.c) - 1) * std::max(0, dirs.Z + 1);
       }
     };
     while (ite != ite_info->stop_point) {
