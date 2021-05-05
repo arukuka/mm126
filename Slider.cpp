@@ -796,13 +796,14 @@ void calculate_score(
         dirs.Z -= dic[ite].second;
         dones[dic[ite].first] = true;
       } else if (src->is_block(ite.r, ite.c)) {
+        const int dist = manhattan_distance(
+          now.c, now.r,
+          ite.c, ite.r
+        );
         if (dones[depth]) {
-          dirs.Z -= 1;
+          dirs.Z -= std::min(1, dist);
         } else {
-          dirs.Z -= manhattan_distance(
-            now.c, now.r,
-            ite.c, ite.r
-          );
+          dirs.Z -= dist;
         }
         dirs.Z -= cal_move_times(dirs, ite_info);
         dirs.score += (src->get_block_color(ite.r, ite.c) - 1) * (dirs.Z + 1);
@@ -1004,6 +1005,7 @@ std::shared_ptr<Field> solve_greedy_ver2(const std::shared_ptr<Field> src) {
   if (raw_targets.size() > 1) {
     next_color = raw_targets[1].color;
   }
+  std::int64_t best_score = std::numeric_limits<std::int64_t>::min();
   for (const auto& target : raw_targets) {
     if (target.color < max) {
       break;
@@ -1013,8 +1015,20 @@ std::shared_ptr<Field> solve_greedy_ver2(const std::shared_ptr<Field> src) {
       constexpr Point prev_dir{0, 0};
       for (int len = 1; len <= 2; ++len) {
         const auto trial = search_directions(src, hole, target.point, atom, len, prev_dir);
-        if (best_dirs < trial) {
+        std::int64_t next_score = trial.Z;
+        next_score *= 8 * NOT_USED * NOT_USED;
+        next_score += trial.score;
+        next_score *= 2;
+        for (const auto& info : trial.infos) {
+          if (info.target_receiver.first.r != NOT_USED) {
+            ++next_score;
+          }
+        }
+        next_score *= 128;
+        next_score += std::uniform_int_distribution<>{0, 128}(random_engine);
+        if (best_score < next_score) {
           best_dirs = trial;
+          best_score = next_score;
         }
       }
     }
