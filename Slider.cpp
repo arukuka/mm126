@@ -19,6 +19,11 @@
 #include <unordered_map>
 #include <cassert>
 
+#define TEST
+#ifdef TEST
+#include <thread>
+#endif
+
 template<typename T>
 void debug_print(const std::string file, const int line, const std::string func, std::string name, const T& t)
 {
@@ -68,7 +73,7 @@ struct Point {
   }
 };
 
-constexpr double TLE = 9.0;
+constexpr double TLE = 9.5;
 constexpr int MAX_N = 30;
 constexpr int MAX_C = 9;
 constexpr std::array<std::array<std::int8_t, 2>, 4> OFS{{
@@ -91,7 +96,33 @@ struct Timer {
   }
 };
 
+struct FastTimer {
+#ifdef LOCAL
+  static constexpr double ticks_per_sec = 2295072946;
+#else
+  static constexpr double ticks_per_sec = 2800000000;
+#endif
+  static constexpr double ticks_per_sec_inv = 1.0 / ticks_per_sec;
+
+  std::uint64_t start = rdtsc();
+  std::uint64_t ticks;
+  double secs = 0;
+
+  inline std::uint64_t rdtsc() {
+    uint32_t lo, hi;
+    asm volatile ("rdtsc" : "=a" (lo), "=d" (hi));
+    return ticks = ((static_cast<std::uint64_t>(hi) << 32) | lo);
+  }
+
+  bool TLE() {
+    const auto dur = rdtsc() - start;
+    this->secs = dur * ticks_per_sec_inv;
+    return ::TLE < secs;
+  }
+};
+
 Timer timer;
+FastTimer fast_timer;
 xor_shift_128 random_engine(20210505);
 
 int N, C, H;
@@ -1267,7 +1298,7 @@ std::shared_ptr<Field> neighbor_insert(const std::shared_ptr<Field> src)
 std::vector<Command> solve() {
   std::shared_ptr<Field> best = field;
   for (;;) {
-    if (best->Z <= 0 || timer.TLE()) {
+    if (best->Z <= 0 || fast_timer.TLE()) {
       break;
     }
     auto next = solve_greedy_ver2(best);
@@ -1276,6 +1307,15 @@ std::vector<Command> solve() {
     }
     best = next;
   }
+
+#ifdef TEST
+  {
+    auto from = fast_timer.rdtsc();
+    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+    auto to = fast_timer.rdtsc();
+    DBG(to - from);
+  }
+#endif
 
   using field_type = std::shared_ptr<Field>;
   auto field_compare = [](const field_type l, const field_type r) {
@@ -1289,13 +1329,13 @@ std::vector<Command> solve() {
   targets[field->Z].push(field);
 
   for (int iteration = 0;; ++iteration) {
-    if (timer.TLE()) {
+    if (fast_timer.TLE()) {
       DBG(iteration);
       break;
     }
 
     for (int i = field->Z; i > 0; --i) {
-      if (timer.TLE()) {
+      if (fast_timer.TLE()) {
         break;
       }
 
@@ -1337,6 +1377,8 @@ std::vector<Command> solve() {
   }
   DBG(timer.TLE());
   DBG(timer.secs);
+  DBG(fast_timer.TLE());
+  DBG(fast_timer.secs);
 
   std::cerr << "Score: " << best->score << std::endl;
   std::vector<Command> ans;
