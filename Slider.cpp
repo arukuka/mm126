@@ -846,7 +846,7 @@ void calculate_score(
       dones[depth] = true;
     }
     Point ite{now.r, now.c};
-    auto run = [&](){
+    while (ite != ite_info->stop_point) {
       if (dic.count(ite) && !dones[dic[ite].first]) {
         dirs.Z -= dic[ite].second;
         dones[dic[ite].first] = true;
@@ -863,15 +863,27 @@ void calculate_score(
         dirs.Z -= cal_move_times(dirs, ite_info);
         dirs.score += (src->get_block_color(ite.r, ite.c) - 1) * std::max(0, dirs.Z + 1);
       }
-    };
-    while (ite != ite_info->stop_point) {
-      run();
       ite.r += ite_info->dir.r;
       ite.c += ite_info->dir.c;
     }
     assert(ite == ite_info->stop_point);
     if (depth + 1 >= dirs.infos.size()) {
-      run();
+      if (dic.count(ite) && !dones[dic[ite].first]) {
+        dirs.Z -= dic[ite].second;
+        dones[dic[ite].first] = true;
+      } else if (src->is_block(ite.r, ite.c)) {
+        const int dist = manhattan_distance(
+          now.c, now.r,
+          ite.c, ite.r
+        );
+        if (dones[depth]) {
+          dirs.Z -= std::min(1, dist);
+        } else {
+          dirs.Z -= dist;
+        }
+        dirs.Z -= cal_move_times(dirs, ite_info);
+        dirs.score += (src->get_block_color(ite.r, ite.c) - 1) * std::max(0, dirs.Z + 1);
+      }
     }
     now = ite_info->stop_point;
     ++depth;
@@ -909,22 +921,24 @@ std::shared_ptr<Field> apply_directions(
       dones[depth] = true;
     }
     Point ite{now.r, now.c};
-    auto run = [&](){
+    while (ite != ite_info->stop_point) {
       if (dic.count(ite) && !dones[dic[ite].first]) {
         next = bfs(next, ite, receiver);
         dones[dic[ite].first] = true;
       } else if (src->is_block(ite.r, ite.c)) {
         next = bfs(next, ite);
       }
-    };
-    while (ite != ite_info->stop_point) {
-      run();
       ite.r += ite_info->dir.r;
       ite.c += ite_info->dir.c;
     }
     assert(ite == ite_info->stop_point);
     if (depth + 1 >= dirs.infos.size()) {
-      run();
+      if (dic.count(ite) && !dones[dic[ite].first]) {
+        next = bfs(next, ite, receiver);
+        dones[dic[ite].first] = true;
+      } else if (src->is_block(ite.r, ite.c)) {
+        next = bfs(next, ite);
+      }
     }
     now = ite_info->stop_point;
     ++depth;
