@@ -27,6 +27,30 @@ void debug_print(const std::string file, const int line, const std::string func,
 
 #define DBG(x) debug_print(__FILE__, __LINE__, __func__, #x, x)
 
+// https://github.com/kmyk/atcoder-heuristic-contest-002/blob/074128b66b88dc9083f2bd4650c9b86a71b428cb/main.cpp#L9-L30
+class xor_shift_128 {
+public:
+    typedef uint32_t result_type;
+    xor_shift_128(uint32_t seed = 42) {
+        set_seed(seed);
+    }
+    void set_seed(uint32_t seed) {
+        a = seed = 1812433253u * (seed ^ (seed >> 30));
+        b = seed = 1812433253u * (seed ^ (seed >> 30)) + 1;
+        c = seed = 1812433253u * (seed ^ (seed >> 30)) + 2;
+        d = seed = 1812433253u * (seed ^ (seed >> 30)) + 3;
+    }
+    uint32_t operator() () {
+        uint32_t t = (a ^ (a << 11));
+        a = b; b = c; c = d;
+        return d = (d ^ (d >> 19)) ^ (t ^ (t >> 8));
+    }
+    static constexpr uint32_t max() { return std::numeric_limits<result_type>::max(); }
+    static constexpr uint32_t min() { return std::numeric_limits<result_type>::min(); }
+private:
+    uint32_t a, b, c, d;
+};
+
 struct Point {
   std::int16_t r, c;
 
@@ -68,7 +92,7 @@ struct Timer {
 };
 
 Timer timer;
-std::mt19937 random_engine(std::random_device{}());
+xor_shift_128 random_engine(20210505);
 
 int N, C, H;
 
