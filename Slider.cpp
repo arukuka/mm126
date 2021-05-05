@@ -1072,7 +1072,8 @@ std::shared_ptr<Field> solve_greedy_ver2(const std::shared_ptr<Field> src) {
   }
   std::int64_t best_score = std::numeric_limits<std::int64_t>::min();
   for (const auto& target : raw_targets) {
-    if (target.color < max) {
+    if (best_dirs.Z != std::numeric_limits<int>::min()
+        && target.color * src->Z < (best_dirs.Z + 1) * max) {
       break;
     }
     for (const auto& hole : holes) {
