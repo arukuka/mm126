@@ -757,7 +757,7 @@ Directions make_move(
     target_receiver.first.r = ALREADY_DONE;
   }
   if (use_receiver && !done) {
-    target_receiver = search_receiver(src, receiver, to);
+    target_receiver = search_receiver(src, receiver, filter);
   }
 
   next.infos.emplace_back(Directions::Info{normalized_diff, stop_point, target_receiver});
@@ -877,7 +877,7 @@ std::shared_ptr<Field> apply_directions(
   return next;
 }
 
-Directions search_directions(const std::shared_ptr<Field> src, const Point now, const Point goal, const Directions directions, const int length, const Point& prev_dir) {
+Directions search_directions(const std::shared_ptr<Field> src, const Point now, const Point goal, const Directions& directions, const int length, const Point& prev_dir) {
   if (length <= 0) {
     Directions ans{directions};
     calculate_score(src, ans);
@@ -890,7 +890,7 @@ Directions search_directions(const std::shared_ptr<Field> src, const Point now, 
     if (dr == 0 || dc == 0) {
       Point move{dr, dc};
       for (int i = 0; i < 2; ++i) {
-        auto next = make_move(src, goal, now, move, i == 0, directions);
+        auto next = make_move(src, goal, now, move, i > 0, directions);
         auto dir = next.infos.back().dir;
         if (prev_dir == dir || (prev_dir.r * -1 == dir.r && prev_dir.c * -1 == dir.c)) {
           break;
@@ -916,7 +916,7 @@ Directions search_directions(const std::shared_ptr<Field> src, const Point now, 
     for (int i = 0; i < 2; ++i) {
       const auto move = moves[i];
       for (int j = 0; j < 2; ++j) {
-        auto next = make_move(src, goal, now, move, j == 0, directions);
+        auto next = make_move(src, goal, now, move, j > 0, directions);
         auto dir = next.infos.back().dir;
         if (prev_dir == dir || (prev_dir.r * -1 == dir.r && prev_dir.c * -1 == dir.c)) {
           break;
@@ -937,7 +937,7 @@ Directions search_directions(const std::shared_ptr<Field> src, const Point now, 
           if (is_out(now.r + move.r, now.c + move.c)) {
             break;
           }
-          auto next = make_move(src, goal, now, move, i == 0, directions);
+          auto next = make_move(src, goal, now, move, i > 0, directions);
           auto dir = next.infos.back().dir;
           if (prev_dir == dir || (prev_dir.r * -1 == dir.r && prev_dir.c * -1 == dir.c)) {
             break;
