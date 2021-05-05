@@ -1001,10 +1001,6 @@ std::shared_ptr<Field> solve_greedy_ver2(const std::shared_ptr<Field> src) {
   if (max == 1) {
     return src;
   }
-  int next_color = 1;
-  if (raw_targets.size() > 1) {
-    next_color = raw_targets[1].color;
-  }
   std::int64_t best_score = std::numeric_limits<std::int64_t>::min();
   for (const auto& target : raw_targets) {
     if (target.color < max) {
@@ -1015,17 +1011,61 @@ std::shared_ptr<Field> solve_greedy_ver2(const std::shared_ptr<Field> src) {
       constexpr Point prev_dir{0, 0};
       for (int len = 1; len <= 2; ++len) {
         const auto trial = search_directions(src, hole, target.point, atom, len, prev_dir);
+        if (trial.infos.size() == 0) {
+          continue;
+        }
         std::int64_t next_score = trial.Z;
         next_score *= 8 * NOT_USED * NOT_USED;
         next_score += trial.score;
-        next_score *= 2;
-        for (const auto& info : trial.infos) {
-          if (info.target_receiver.first.r != NOT_USED) {
-            ++next_score;
+        {
+          int sub = 0;
+          const auto dir = trial.infos.back().dir;
+          if (len == 1) {
+            for (const auto& ofs : OFS) {
+              if (dir.r * -1 == ofs[1] && dir.c * -1 == ofs[0]) {
+                continue;
+              }
+              Point ite{target.point};
+              ite.r += ofs[1];
+              ite.c += ofs[0];
+              int Z = trial.Z - 1;
+              if (dir.r == ofs[1] && dir.c == ofs[0]) {
+                ++Z;
+              }
+              while (!is_out(ite)) {
+                if (src->is_block(ite.r, ite.c)) {
+                  sub = std::max(
+                      sub,
+                      Z * (src->get_block_color(ite.r, ite.c) - 1)
+                  );
+                  --Z;
+                }
+                ite.r += ofs[1];
+                ite.c += ofs[0];
+              }
+            }
+          } else {
+            Point ite{target.point};
+            ite.r += dir.r;
+            ite.c += dir.c;
+            int Z = trial.Z - 1;
+            while (!is_out(ite)) {
+              if (src->is_block(ite.r, ite.c)) {
+                sub = std::max(
+                    sub,
+                    (Z - 1) * (src->get_block_color(ite.r, ite.c) - 1)
+                );
+                Z -= 2;
+              }
+              ite.r += dir.r;
+              ite.c += dir.c;
+            }
           }
+          next_score *= 8 * NOT_USED * NOT_USED;
+          next_score += sub;
         }
-        next_score *= 128;
-        next_score += std::uniform_int_distribution<>{0, 128}(random_engine);
+        next_score *= 256;
+        next_score += std::uniform_int_distribution<>{0, 255}(random_engine);
         if (best_score < next_score) {
           best_dirs = trial;
           best_score = next_score;
