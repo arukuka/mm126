@@ -639,9 +639,6 @@ std::pair<Point, int> search_receiver(const std::shared_ptr<Field> src, const Po
     if (src->is_hole(node.point.r, node.point.c)) {
       continue;
     }
-    if (node.point == filter) {
-      continue;
-    }
     if (memo[node.point.r][node.point.c].count != -1) {
       continue;
     }
@@ -679,7 +676,8 @@ std::pair<Point, int> search_receiver(const std::shared_ptr<Field> src, const Po
 
 std::pair<Point, int> search_receiver(const std::shared_ptr<Field> src, const Point& receiver, const Point& filter) {
   std::set<Point> set;
-  search_receiver(src, receiver, set);
+  set.insert(filter);
+  return search_receiver(src, receiver, set);
 }
 
 struct Directions {
@@ -745,6 +743,12 @@ Directions make_move(
     static_cast<std::int8_t>(now.r - normalized_diff.r),
     static_cast<std::int8_t>(now.c - normalized_diff.c)
   };
+
+  std::set<Point> filter;
+  filter.insert(to);
+  for (const auto& info : directions.infos) {
+    filter.insert(info.target_receiver.first);
+  }
 
   std::pair<Point, int> target_receiver{{NOT_USED, -1}, -1};
   bool done = false;
@@ -819,7 +823,7 @@ void calculate_score(
   }
 }
 
-Directions search_directions(const std::shared_ptr<Field> src, const Point now, const Point goal, const Directions directions, const int length, const Point prev_dir) {
+Directions search_directions(const std::shared_ptr<Field> src, const Point now, const Point goal, const Directions directions, const int length, const Point& prev_dir) {
   if (length <= 0) {
     Directions ans{directions};
     calculate_score(src, ans);
@@ -833,8 +837,15 @@ Directions search_directions(const std::shared_ptr<Field> src, const Point now, 
       Point move{dr, dc};
       for (int i = 0; i < 2; ++i) {
         auto next = make_move(src, goal, now, move, i == 0, directions);
-        if (next < ans) {
-          ans = next;
+        auto dir = next.infos.back().dir;
+        if (prev_dir == dir || (prev_dir.r * -1 == dir.r && prev_dir.c * -1 == dir.c)) {
+          break;
+        }
+        auto res = search_directions(
+            src, next.infos.back().stop_point,
+            goal, next, length - 1, dir);
+        if (res < ans) {
+          ans = res;
         }
       }
     } else {
@@ -852,13 +863,45 @@ Directions search_directions(const std::shared_ptr<Field> src, const Point now, 
       const auto move = moves[i];
       for (int j = 0; j < 2; ++j) {
         auto next = make_move(src, goal, now, move, j == 0, directions);
-        if (next < ans) {
-          ans = next;
+        auto dir = next.infos.back().dir;
+        if (prev_dir == dir || (prev_dir.r * -1 == dir.r && prev_dir.c * -1 == dir.c)) {
+          break;
+        }
+        auto res = search_directions(
+            src, next.infos.back().stop_point,
+            goal, next, length - 1, dir);
+        if (res < ans) {
+          ans = res;
         }
       }
     }
   } else {
+    for (int i = 0; i < 2; ++i) {
+      for (const auto& ofs : OFS) {
+        Point move{ofs[1], ofs[0]};
+        for (;;) {
+          if (is_out(now.r + move.r, now.c + move.c)) {
+            break;
+          }
+          auto next = make_move(src, goal, now, move, i == 0, directions);
+          auto dir = next.infos.back().dir;
+          if (prev_dir == dir || (prev_dir.r * -1 == dir.r && prev_dir.c * -1 == dir.c)) {
+            break;
+          }
+          auto res = search_directions(
+              src, next.infos.back().stop_point,
+              goal, next, length - 1, dir);
+          if (res < ans) {
+            ans = res;
+          }
+
+          move.r += ofs[1];
+          move.c += ofs[0];
+        }
+      }
+    }
   }
+  return ans;
 }
 
 std::shared_ptr<Field> solve_greedy_ver2(const std::shared_ptr<Field> src) {
