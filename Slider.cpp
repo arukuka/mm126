@@ -1,5 +1,6 @@
 // C++11
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <cstdlib>
 #include <iostream>
@@ -34,6 +35,12 @@ struct Point {
   }
   bool operator!=(const Point& p) const {
     return !this->operator==(p);
+  }
+  std::int16_t val() const {
+    return (static_cast<std::int16_t>(r) << 5) | c;
+  }
+  bool operator<(const Point& p) const {
+    return val() < p.val();
   }
 };
 
@@ -551,7 +558,7 @@ bool in_range(const Point& from, const Point& to, const Point& point) {
          && min.c <= point.c && point.c <= max.c;
 }
 
-std::pair<Point, int> search_receiver(const std::shared_ptr<Field> src, const Point& receiver, const Point& filter) {
+std::pair<Point, int> search_receiver(const std::shared_ptr<Field> src, const Point& receiver, const std::set<Point>& filter) {
   if (src->is_block(receiver.r, receiver.c)) {
     return {receiver, 0};
   }
@@ -564,8 +571,8 @@ std::pair<Point, int> search_receiver(const std::shared_ptr<Field> src, const Po
     Point point;
     Info info;
   };
-  std::queue<Node> queue;
 
+  std::vector<Node> targets;
   for (const auto& d1 : OFS) {
     Point ite = receiver;
     ite.r += d1[1];
@@ -574,7 +581,7 @@ std::pair<Point, int> search_receiver(const std::shared_ptr<Field> src, const Po
       continue;
     }
     if (src->is_block(ite.r, ite.c)) {
-      queue.push({ite, Info{0, ite}});
+      targets.emplace_back(ite, Info{0, ite});
       continue;
     }
     for (;;) {
@@ -582,7 +589,7 @@ std::pair<Point, int> search_receiver(const std::shared_ptr<Field> src, const Po
         break;
       }
       if (src->is_block(ite.r, ite.c)) {
-        queue.push({ite, Info{0, ite}});
+        targets.emplace_back(ite, Info{0, ite});
         break;
       }
       for (const auto& d2 : OFS) {
@@ -596,7 +603,7 @@ std::pair<Point, int> search_receiver(const std::shared_ptr<Field> src, const Po
           continue;
         }
         if (src->is_block(ite2.r, ite2.c)) {
-          queue.push({ite2, Info{0, ite2}});
+          targets.emplace_back(ite2, Info{0, ite2});
           continue;
         }
         for (;;) {
@@ -604,7 +611,7 @@ std::pair<Point, int> search_receiver(const std::shared_ptr<Field> src, const Po
             break;
           }
           if (src->is_block(ite2.r, ite2.c)) {
-            queue.push({ite2, Info{0, ite2}});
+            targets.emplace_back(ite2, Info{0, ite2});
             break;
           }
           ite2.r += d2[1];
@@ -614,6 +621,14 @@ std::pair<Point, int> search_receiver(const std::shared_ptr<Field> src, const Po
       ite.r += d1[1];
       ite.c += d1[0];
     }
+  }
+
+  std::queue<Node> queue;
+  for (const auto& target : targets) {
+    if (filter.count(target.point)) {
+      continue;
+    }
+    queue.push(target);
   }
 
   Info memo[MAX_N][MAX_N];
@@ -660,6 +675,190 @@ std::pair<Point, int> search_receiver(const std::shared_ptr<Field> src, const Po
   }
   Info info = memo[receiver.r][receiver.c];
   return {info.from, info.count};
+}
+
+std::pair<Point, int> search_receiver(const std::shared_ptr<Field> src, const Point& receiver, const Point& filter) {
+  std::set<Point> set;
+  search_receiver(src, receiver, set);
+}
+
+struct Directions {
+  int Z;
+  int score;
+  Point start;
+  struct Info {
+    Point dir;
+    Point stop_point;
+    std::pair<Point, int> target_receiver;
+  };
+  std::vector<Info> infos;
+  std::set<Point> memo;
+
+  bool operator<(Directions& d) const {
+    if (Z != d.Z) {
+      return Z < d.Z;
+    }
+    return score > d.score;
+  }
+};
+
+constexpr std::int8_t NOT_USED = 32;
+constexpr std::int8_t ALREADY_DONE = -1;
+
+int cal_move_times(const Directions& dirs, const std::vector<Directions::Info>::const_iterator end) {
+  int sum = 0;
+  Point point = dirs.start;
+  for (auto ite = dirs.infos.cbegin(); ite != end; ++ite) {
+    if (ite->target_receiver.first.r != NOT_USED) {
+      ++sum;
+    } else {
+      sum += manhattan_distance(
+          point.c, point.r,
+          ite->stop_point.c, ite->stop_point.r
+      );
+    }
+    point = ite->stop_point;
+  }
+  return sum;
+}
+
+
+Directions make_move(
+    const std::shared_ptr<Field> src,
+    const Point& to,
+    const Point& now,
+    const Point& move,
+    const bool use_receiver,
+    const Directions& directions)
+{
+  Directions next{directions};
+
+  const Point stop_point{
+    static_cast<std::int8_t>(now.r + move.r),
+    static_cast<std::int8_t>(now.c + move.c)
+  };
+  const Point normalized_diff{
+    normalize(move.r),
+    normalize(move.c)
+  };
+  const Point receiver{
+    static_cast<std::int8_t>(now.r - normalized_diff.r),
+    static_cast<std::int8_t>(now.c - normalized_diff.c)
+  };
+
+  std::pair<Point, int> target_receiver{{NOT_USED, -1}, -1};
+  bool done = false;
+  if (is_out(receiver.r, receiver.c)
+      || src->is_hole(now.r, now.c)) {
+    done = true;
+    target_receiver.first.r = ALREADY_DONE;
+  }
+  if (use_receiver && !done) {
+    target_receiver = search_receiver(src, receiver, to);
+  }
+
+  next.infos.emplace_back(Directions::Info{normalized_diff, stop_point, target_receiver});
+
+  return next;
+}
+
+void calculate_score(
+    const std::shared_ptr<Field> src,
+    Directions& dirs)
+{
+  std::map<Point, std::pair<int, int>> dic;
+  std::vector<bool> dones(dirs.infos.size());
+
+  for (std::size_t i = 0; i < dirs.infos.size(); ++i) {
+    const auto& info = dirs.infos[i];
+    if (info.target_receiver.first.r == ALREADY_DONE) {
+      dones[i] = true;
+    } else if (info.target_receiver.first.r != NOT_USED) {
+      dic[info.target_receiver.first] = {i, info.target_receiver.second};
+    }
+  }
+
+  Point now = dirs.start;
+  std::size_t depth = 0;
+  for (auto ite_info = dirs.infos.cbegin(); ite_info != dirs.infos.cend(); ++ite_info) {
+    if (!dones[depth]
+        && ite_info->target_receiver.first.r != NOT_USED
+        && !in_range(ite_info->stop_point, now, ite_info->target_receiver.first)) {
+      dirs.Z -= ite_info->target_receiver.second;
+      dones[depth] = true;
+    }
+    Point ite{now.r, now.c};
+    auto run = [&](){
+      if (dic.count(ite) && !dones[dic[ite].first]) {
+        dirs.Z -= dic[ite].second;
+        dones[dic[ite].first] = true;
+      } else if (src->is_block(ite.r, ite.c)) {
+        if (dones[depth]) {
+          dirs.Z -= 1;
+        } else {
+          dirs.Z -= manhattan_distance(
+            ite_info->stop_point.c, ite_info->stop_point.r,
+            ite.c, ite.r
+          );
+        }
+        dirs.Z -= cal_move_times(dirs, ite_info);
+        dirs.score += (src->get_block_color(ite.r, ite.c) - 1) * (dirs.Z + 1);
+      }
+    };
+    while (ite != ite_info->stop_point) {
+      run();
+      ite.r += ite_info->dir.r;
+      ite.c += ite_info->dir.c;
+    }
+    assert(ite == ite_info->stop_point);
+    if (depth + 1 >= dirs.infos.size()) {
+      run();
+    }
+    now = ite_info->stop_point;
+    ++depth;
+  }
+}
+
+Directions search_directions(const std::shared_ptr<Field> src, const Point now, const Point goal, const Directions directions, const int length, const Point prev_dir) {
+  if (length <= 0) {
+    Directions ans{directions};
+    calculate_score(src, ans);
+    return ans;
+  }
+  const std::int8_t dr = goal.r - now.r;
+  const std::int8_t dc = goal.c - now.c;
+  Directions ans{std::numeric_limits<int>::max(), 0};
+  if (length == 1) {
+    if (dr == 0 || dc == 0) {
+      Point move{dr, dc};
+      for (int i = 0; i < 2; ++i) {
+        auto next = make_move(src, goal, now, move, i == 0, directions);
+        if (next < ans) {
+          ans = next;
+        }
+      }
+    } else {
+      return {std::numeric_limits<int>::max()};
+    }
+  } else if (length == 2) {
+    if (dr == 0 || dc == 0) {
+      return {std::numeric_limits<int>::max()};
+    }
+    const std::array<Point, 2> moves{{
+      {0, dc},
+      {dr, 0}
+    }};
+    for (int i = 0; i < 2; ++i) {
+      const auto move = moves[i];
+      for (int j = 0; j < 2; ++j) {
+        auto next = make_move(src, goal, now, move, j == 0, directions);
+        if (next < ans) {
+          ans = next;
+        }
+      }
+    }
+  } else {
+  }
 }
 
 std::shared_ptr<Field> solve_greedy_ver2(const std::shared_ptr<Field> src) {
@@ -712,6 +911,9 @@ std::shared_ptr<Field> solve_greedy_ver2(const std::shared_ptr<Field> src) {
 
   std::vector<Item> targets;
   int max = raw_targets[0].color;
+  if (max == 1) {
+    return src;
+  }
   int next_color = 1;
   if (raw_targets.size() > 1) {
     next_color = raw_targets[1].color;
