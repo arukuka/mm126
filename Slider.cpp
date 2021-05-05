@@ -1253,18 +1253,28 @@ std::vector<Command> solve() {
     best = next;
   }
 
-  // for (int iteration = 0;; ++iteration) {
-  //   if (timer.TLE()) {
-  //     DBG(iteration);
-  //     break;
-  //   }
+  for (int iteration = 0;; ++iteration) {
+    if (timer.TLE()) {
+      DBG(iteration);
+      break;
+    }
 
-  //   std::shared_ptr<Field> next = neighbor_insert(best);
+    std::shared_ptr<Field> next = field;
+    for (;;) {
+      if (next->Z <= 0 || timer.TLE()) {
+        break;
+      }
+      auto next2 = solve_greedy_ver2(next);
+      if (next == next2) {
+        break;
+      }
+      next = next2;
+    }
 
-  //   if (next->score > best->score) {
-  //     best = next;
-  //   }
-  // }
+    if (next->score > best->score) {
+      best = next;
+    }
+  }
   DBG(timer.TLE());
   DBG(timer.secs);
 
